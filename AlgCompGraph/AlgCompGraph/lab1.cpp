@@ -172,18 +172,21 @@ HRESULT InitD3D(HWND hWnd)
 {
     HRESULT hr = S_OK;
 
-    // Enable the debug layer
-    UINT creationFlags = D3D11_CREATE_DEVICE_DEBUG;
+    UINT creationFlags = 0;
+#ifndef NDEBUG
+    creationFlags |= D3D11_CREATE_DEVICE_DEBUG;
+#endif
 
     DXGI_SWAP_CHAIN_DESC sd;
     ZeroMemory(&sd, sizeof(sd));
-    sd.BufferCount = 1;
+    sd.BufferCount = 2;
     sd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
     sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
     sd.OutputWindow = hWnd;
     sd.SampleDesc.Count = 1;
     sd.SampleDesc.Quality = 0;
     sd.Windowed = TRUE;
+    sd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
 
     hr = D3D11CreateDeviceAndSwapChain(
         nullptr,
@@ -206,17 +209,18 @@ HRESULT InitD3D(HWND hWnd)
         return hr;
     }
 
-    // Get the debug interface
+#ifndef NDEBUG
     hr = g_pd3dDevice->QueryInterface(__uuidof(ID3D11Debug), (void**)&g_pDebug);
     if (FAILED(hr))
     {
         MessageBox(hWnd, L"Failed to get ID3D11Debug interface.", L"Error", MB_OK);
         return hr;
     }
+#endif
 
     ID3D11Texture2D* pBackBuffer = nullptr;
     hr = g_pSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), (LPVOID*)&pBackBuffer);
-    if (FAILED(hr) || !pBackBuffer)
+    if (FAILED(hr))
     {
         MessageBox(hWnd, L"Failed to get back buffer.", L"Error", MB_OK);
         return hr;
@@ -259,16 +263,3 @@ void Render()
     g_pImmediateContext->ClearRenderTargetView(g_pRenderTargetView, ClearColor);
     g_pSwapChain->Present(0, 0);
 }
-
-//Uncomment it for testing debug layer
-
-//void Render()
-//{
-//    float ClearColor[4] = { 0.0f, 0.2f, 0.4f, 1.0f };
-//    g_pImmediateContext->ClearRenderTargetView(g_pRenderTargetView, ClearColor);
-//
-//    // Заведомо некорректный вызов - нет шейдеров, вершинных буферов и т.д.
-//    g_pImmediateContext->Draw(3, 0); // <- Вызовет ошибку D3D11
-//
-//    g_pSwapChain->Present(0, 0);
-//}
