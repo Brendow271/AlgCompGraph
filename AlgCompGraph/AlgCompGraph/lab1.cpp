@@ -327,10 +327,10 @@ HRESULT InitGraphics()
         return hr;
 
     D3D11_BUFFER_DESC cbDesc = {};
-    cbDesc.Usage = D3D11_USAGE_DYNAMIC;
+    cbDesc.Usage = D3D11_USAGE_DEFAULT;
     cbDesc.ByteWidth = sizeof(GeomBuffer);
     cbDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-    cbDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+    cbDesc.CPUAccessFlags = 0;
 
     hr = g_pd3dDevice->CreateBuffer(&cbDesc, nullptr, &g_pGeomBuffer);
     if (FAILED(hr))
@@ -406,7 +406,6 @@ void Render() {
     g_pImmediateContext->VSSetShader(g_pVertexShader, nullptr, 0);
     g_pImmediateContext->PSSetShader(g_pPixelShader, nullptr, 0);
 
-    D3D11_MAPPED_SUBRESOURCE mappedResource;
     GeomBuffer geomBuffer;
     VPBuffer vpBuffer;
 
@@ -422,14 +421,11 @@ void Render() {
         DirectX::XMMatrixPerspectiveFovLH(fovAngleY, 800.0f / 600.0f, 0.01f, 100.0f)
     );
 
-    g_pImmediateContext->Map(g_pGeomBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mappedResource);
-    memcpy(mappedResource.pData, &geomBuffer, sizeof(GeomBuffer));
-    g_pImmediateContext->Unmap(g_pGeomBuffer, 0);
-    g_pImmediateContext->VSSetConstantBuffers(0, 1, &g_pGeomBuffer);
+    // Обновление буферов через UpdateSubresource
+    g_pImmediateContext->UpdateSubresource(g_pGeomBuffer, 0, nullptr, &geomBuffer, 0, 0);
+    g_pImmediateContext->UpdateSubresource(g_pVPBuffer, 0, nullptr, &vpBuffer, 0, 0);
 
-    g_pImmediateContext->Map(g_pVPBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mappedResource);
-    memcpy(mappedResource.pData, &vpBuffer, sizeof(VPBuffer));
-    g_pImmediateContext->Unmap(g_pVPBuffer, 0);
+    g_pImmediateContext->VSSetConstantBuffers(0, 1, &g_pGeomBuffer);
     g_pImmediateContext->VSSetConstantBuffers(1, 1, &g_pVPBuffer);
 
     g_pImmediateContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
