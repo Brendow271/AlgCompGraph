@@ -16,6 +16,7 @@ HINSTANCE hInst;                                // current instance
 WCHAR szTitle[MAX_LOADSTRING];                  // The title bar text
 WCHAR szWindowClass[MAX_LOADSTRING];            // the main window class name
 
+
 // DirectX variables
 ID3D11Device* g_pd3dDevice = nullptr;
 ID3D11DeviceContext* g_pImmediateContext = nullptr;
