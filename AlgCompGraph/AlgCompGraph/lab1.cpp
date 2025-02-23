@@ -336,8 +336,13 @@ HRESULT InitGraphics()
     if (FAILED(hr))
         return hr;
 
-    cbDesc.ByteWidth = sizeof(VPBuffer);
-    hr = g_pd3dDevice->CreateBuffer(&cbDesc, nullptr, &g_pVPBuffer);
+    D3D11_BUFFER_DESC vpDesc = {};
+    vpDesc.Usage = D3D11_USAGE_DYNAMIC;
+    vpDesc.ByteWidth = sizeof(VPBuffer);
+    vpDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+    vpDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+
+    hr = g_pd3dDevice->CreateBuffer(&vpDesc, nullptr, &g_pVPBuffer);
     if (FAILED(hr))
         return hr;
 
@@ -406,6 +411,7 @@ void Render() {
     g_pImmediateContext->VSSetShader(g_pVertexShader, nullptr, 0);
     g_pImmediateContext->PSSetShader(g_pPixelShader, nullptr, 0);
 
+    
     GeomBuffer geomBuffer;
     VPBuffer vpBuffer;
 
@@ -421,9 +427,12 @@ void Render() {
         DirectX::XMMatrixPerspectiveFovLH(fovAngleY, 800.0f / 600.0f, 0.01f, 100.0f)
     );
 
-    // Обновление буферов через UpdateSubresource
     g_pImmediateContext->UpdateSubresource(g_pGeomBuffer, 0, nullptr, &geomBuffer, 0, 0);
-    g_pImmediateContext->UpdateSubresource(g_pVPBuffer, 0, nullptr, &vpBuffer, 0, 0);
+    
+    D3D11_MAPPED_SUBRESOURCE mappedResource;
+    g_pImmediateContext->Map(g_pVPBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mappedResource);
+    memcpy(mappedResource.pData, &vpBuffer, sizeof(VPBuffer));
+    g_pImmediateContext->Unmap(g_pVPBuffer, 0);
 
     g_pImmediateContext->VSSetConstantBuffers(0, 1, &g_pGeomBuffer);
     g_pImmediateContext->VSSetConstantBuffers(1, 1, &g_pVPBuffer);
