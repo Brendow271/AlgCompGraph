@@ -1,4 +1,4 @@
-#include <windows.h>
+﻿#include <windows.h>
 #include <d3d11.h>
 #include <dxgi.h>
 #include <DirectXMath.h>
@@ -27,24 +27,62 @@ ID3D11InputLayout* g_pVertexLayout = nullptr;
 ID3D11VertexShader* g_pVertexShader = nullptr;
 ID3D11PixelShader* g_pPixelShader = nullptr;
 
+ID3D11Buffer* g_pIndexBuffer = nullptr;
+ID3D11Buffer* g_pGeomBuffer = nullptr;
+ID3D11Buffer* g_pVPBuffer = nullptr;
+
 DirectX::XMFLOAT4 g_ClearColor = { 0.2f, 0.2f, 0.4f, 1.0f };
+DirectX::XMFLOAT3 g_CameraPosition = { 0.0f, 0.0f, -5.0f };
+float g_RotationAngle = 0.0f;
+float g_CameraMoveSpeed = 15.0f;
+float g_DeltaTime = 0.0f;
+bool g_Keys[256] = { false };
 
 
+struct GeomBuffer {
+    DirectX::XMMATRIX model;
+};
 
-// Vertex structure
+struct VPBuffer {
+    DirectX::XMMATRIX vp;
+};
+
 struct Vertex {
     DirectX::XMFLOAT3 position;
     DirectX::XMFLOAT4 color;
 };
 
-// Vertex data
 Vertex Vertices[] = {
-        { DirectX::XMFLOAT3(0.0f,  0.5f, 0.0f), DirectX::XMFLOAT4(1.0f, 0.0f, 0.0f, 1.0f) },
-        { DirectX::XMFLOAT3(0.5f, -0.5f, 0.0f), DirectX::XMFLOAT4(0.0f, 1.0f, 0.0f, 1.0f) },
-        { DirectX::XMFLOAT3(-0.5f, -0.5f, 0.0f), DirectX::XMFLOAT4(0.0f, 0.0f, 1.0f, 1.0f) }
+    { DirectX::XMFLOAT3(-0.5f, -0.5f, -0.5f), DirectX::XMFLOAT4(1.0f, 0.0f, 0.0f, 1.0f) },
+    { DirectX::XMFLOAT3(-0.5f,  0.5f, -0.5f), DirectX::XMFLOAT4(0.0f, 1.0f, 0.0f, 1.0f) },
+    { DirectX::XMFLOAT3(0.5f,  0.5f, -0.5f), DirectX::XMFLOAT4(0.0f, 0.0f, 1.0f, 1.0f) },
+    { DirectX::XMFLOAT3(0.5f, -0.5f, -0.5f), DirectX::XMFLOAT4(1.0f, 1.0f, 0.0f, 1.0f) },
+    { DirectX::XMFLOAT3(-0.5f, -0.5f,  0.5f), DirectX::XMFLOAT4(0.0f, 1.0f, 1.0f, 1.0f) },
+    { DirectX::XMFLOAT3(-0.5f,  0.5f,  0.5f), DirectX::XMFLOAT4(1.0f, 0.0f, 1.0f, 1.0f) },
+    { DirectX::XMFLOAT3(0.5f,  0.5f,  0.5f), DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f) },
+    { DirectX::XMFLOAT3(0.5f, -0.5f,  0.5f), DirectX::XMFLOAT4(0.0f, 0.0f, 0.0f, 1.0f) }
 };
 
-// Forward declarations of functions included in this code module:
+WORD Indices[] = {
+    0, 1, 2,
+    0, 2, 3,
+
+    4, 6, 5,
+    4, 7, 6,
+
+    4, 5, 1,
+    4, 1, 0,
+
+    3, 2, 6,
+    3, 6, 7,
+
+    1, 5, 6,
+    1, 6, 2,
+
+    4, 0, 3,
+    4, 3, 7
+};
+
 LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
 HRESULT InitD3D(HWND hWnd);
 void CleanupDevice();
@@ -66,14 +104,14 @@ int APIENTRY WinMain(
         nullptr,
         nullptr,
         nullptr,
-        L"Laboratory work 2",
+        L"Laboratory work 3",
         nullptr
     };
     RegisterClassEx(&wc);
 
     HWND hWnd = CreateWindow(
         wc.lpszClassName,
-        L"Laboratory work 2",
+        L"Laboratory work 3",
         WS_OVERLAPPEDWINDOW,
         100,
         100,
@@ -109,6 +147,28 @@ int APIENTRY WinMain(
 
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
     switch (message) {
+    case WM_KEYDOWN:
+        switch (wParam) {
+        case 'W':
+            g_CameraPosition.z += g_CameraMoveSpeed * g_DeltaTime;
+            break;
+        case 'S':
+            g_CameraPosition.z -= g_CameraMoveSpeed * g_DeltaTime;
+            break;
+        case 'A':
+            g_CameraPosition.x -= g_CameraMoveSpeed * g_DeltaTime;
+            break;
+        case 'D':
+            g_CameraPosition.x += g_CameraMoveSpeed * g_DeltaTime;
+            break;
+        case 'Q':
+            g_CameraPosition.y += g_CameraMoveSpeed * g_DeltaTime;
+            break;
+        case 'E':
+            g_CameraPosition.y -= g_CameraMoveSpeed * g_DeltaTime;
+            break;
+        }
+        break;
     case WM_SIZE:
         if (g_pd3dDevice != nullptr && g_pSwapChain != nullptr) {
             if (g_pRenderTargetView) {
@@ -243,7 +303,6 @@ HRESULT InitGraphics()
 {
     HRESULT hr = S_OK;
 
-    // Create the vertex buffer
     D3D11_BUFFER_DESC bd = {};
     bd.Usage = D3D11_USAGE_DEFAULT;
     bd.ByteWidth = sizeof(Vertices);
@@ -255,17 +314,48 @@ HRESULT InitGraphics()
     if (FAILED(hr))
         return hr;
 
-    // Compile and create shaders
+    D3D11_BUFFER_DESC ibd = {};
+    ibd.Usage = D3D11_USAGE_DEFAULT;
+    ibd.ByteWidth = sizeof(Indices);
+    ibd.BindFlags = D3D11_BIND_INDEX_BUFFER;
+    D3D11_SUBRESOURCE_DATA iinitData = {};
+    iinitData.pSysMem = Indices;
+
+    hr = g_pd3dDevice->CreateBuffer(&ibd, &iinitData, &g_pIndexBuffer);
+    if (FAILED(hr))
+        return hr;
+
+    D3D11_BUFFER_DESC cbDesc = {};
+    cbDesc.Usage = D3D11_USAGE_DYNAMIC;
+    cbDesc.ByteWidth = sizeof(GeomBuffer);
+    cbDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+    cbDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+
+    hr = g_pd3dDevice->CreateBuffer(&cbDesc, nullptr, &g_pGeomBuffer);
+    if (FAILED(hr))
+        return hr;
+
+    cbDesc.ByteWidth = sizeof(VPBuffer);
+    hr = g_pd3dDevice->CreateBuffer(&cbDesc, nullptr, &g_pVPBuffer);
+    if (FAILED(hr))
+        return hr;
+
     ID3DBlob* vsBlob = nullptr;
     ID3DBlob* psBlob = nullptr;
 
+    UINT flags = 0;
+
+#ifdef _DEBUG
+    flags |= D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION;
+#endif // _DEBUG
+
     hr = D3DCompileFromFile(L"VertexShader.hlsl", nullptr, D3D_COMPILE_STANDARD_FILE_INCLUDE,
-        "VSMain", "vs_4_0", 0, 0, &vsBlob, nullptr);
+        "VSMain", "vs_4_0", flags, 0, &vsBlob, nullptr);
     if (FAILED(hr))
         return hr;
 
     hr = D3DCompileFromFile(L"PixelShader.hlsl", nullptr, D3D_COMPILE_STANDARD_FILE_INCLUDE,
-        "PSMain", "ps_4_0", 0, 0, &psBlob, nullptr);
+        "PSMain", "ps_4_0", flags, 0, &psBlob, nullptr);
     if (FAILED(hr))
         return hr;
 
@@ -277,7 +367,6 @@ HRESULT InitGraphics()
     if (FAILED(hr))
         return hr;
 
-    // Create input layout
     D3D11_INPUT_ELEMENT_DESC layout[] = {
         { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
         { "COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0 },
@@ -291,8 +380,68 @@ HRESULT InitGraphics()
     return S_OK;
 }
 
+void Render() {
+    static DWORD previousTime = GetTickCount64();
+    DWORD currentTime = GetTickCount64();
+
+    g_DeltaTime = (currentTime - previousTime) / 1000.0f;
+    if (g_DeltaTime > 0.1f) g_DeltaTime = 0.1f;
+    previousTime = currentTime;
+
+    g_RotationAngle += 1.0f * g_DeltaTime;
+    if (g_RotationAngle > DirectX::XM_2PI) {
+        g_RotationAngle -= DirectX::XM_2PI;
+    }
+
+    g_pImmediateContext->OMSetRenderTargets(1, &g_pRenderTargetView, nullptr);
+    g_pImmediateContext->ClearRenderTargetView(g_pRenderTargetView, reinterpret_cast<const float*>(&g_ClearColor));
+
+    UINT stride = sizeof(Vertex);
+    UINT offset = 0;
+    g_pImmediateContext->IASetVertexBuffers(0, 1, &g_pVertexBuffer, &stride, &offset);
+    g_pImmediateContext->IASetIndexBuffer(g_pIndexBuffer, DXGI_FORMAT_R16_UINT, 0);
+    g_pImmediateContext->IASetInputLayout(g_pVertexLayout);
+
+    g_pImmediateContext->VSSetShader(g_pVertexShader, nullptr, 0);
+    g_pImmediateContext->PSSetShader(g_pPixelShader, nullptr, 0);
+
+    D3D11_MAPPED_SUBRESOURCE mappedResource;
+    GeomBuffer geomBuffer;
+    VPBuffer vpBuffer;
+
+    geomBuffer.model = DirectX::XMMatrixRotationY(g_RotationAngle);
+
+    DirectX::XMVECTOR eye = DirectX::XMVectorSet(g_CameraPosition.x, g_CameraPosition.y, g_CameraPosition.z, 0.0f);
+    DirectX::XMVECTOR at = DirectX::XMVectorSet(0.0f, 0.0f, 0.0f, 0.0f);
+    DirectX::XMVECTOR up = DirectX::XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
+
+    constexpr float fovAngleY = DirectX::XMConvertToRadians(60.0f);
+    vpBuffer.vp = DirectX::XMMatrixMultiply(
+        DirectX::XMMatrixLookAtLH(eye, at, up),
+        DirectX::XMMatrixPerspectiveFovLH(fovAngleY, 800.0f / 600.0f, 0.01f, 100.0f)
+    );
+
+    g_pImmediateContext->Map(g_pGeomBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mappedResource);
+    memcpy(mappedResource.pData, &geomBuffer, sizeof(GeomBuffer));
+    g_pImmediateContext->Unmap(g_pGeomBuffer, 0);
+    g_pImmediateContext->VSSetConstantBuffers(0, 1, &g_pGeomBuffer);
+
+    g_pImmediateContext->Map(g_pVPBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mappedResource);
+    memcpy(mappedResource.pData, &vpBuffer, sizeof(VPBuffer));
+    g_pImmediateContext->Unmap(g_pVPBuffer, 0);
+    g_pImmediateContext->VSSetConstantBuffers(1, 1, &g_pVPBuffer);
+
+    g_pImmediateContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    g_pImmediateContext->DrawIndexed(36, 0, 0);
+
+    g_pSwapChain->Present(0, 0);
+}
+
 void CleanupDevice()
 {
+    if (g_pGeomBuffer) g_pGeomBuffer->Release();
+    if (g_pVPBuffer) g_pVPBuffer->Release();
+    if (g_pIndexBuffer) g_pIndexBuffer->Release();
     if (g_pVertexLayout) g_pVertexLayout->Release();
     if (g_pVertexBuffer) g_pVertexBuffer->Release();
     if (g_pVertexShader) g_pVertexShader->Release();
@@ -302,23 +451,4 @@ void CleanupDevice()
     if (g_pSwapChain) g_pSwapChain->Release();
     if (g_pImmediateContext) g_pImmediateContext->Release();
     if (g_pd3dDevice) g_pd3dDevice->Release();
-}
-
-void Render()
-{
-    g_pImmediateContext->OMSetRenderTargets(1, &g_pRenderTargetView, nullptr);
-    g_pImmediateContext->ClearRenderTargetView(g_pRenderTargetView, reinterpret_cast<const float*>(&g_ClearColor));
-
-    UINT stride = sizeof(Vertex);
-    UINT offset = 0;
-    g_pImmediateContext->IASetVertexBuffers(0, 1, &g_pVertexBuffer, &stride, &offset);
-    g_pImmediateContext->IASetInputLayout(g_pVertexLayout);
-
-    g_pImmediateContext->VSSetShader(g_pVertexShader, nullptr, 0);
-    g_pImmediateContext->PSSetShader(g_pPixelShader, nullptr, 0);
-
-    g_pImmediateContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-    g_pImmediateContext->Draw(3, 0);
-
-    g_pSwapChain->Present(0, 0);
 }
