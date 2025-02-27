@@ -1,13 +1,13 @@
 struct VSInput
 {
-    float3 pos : POSITION;
-    float4 color : COLOR;
+    float3 position : POSITION;
+    float2 uv : TEXCOORD;
 };
 
 struct VSOutput
 {
-    float4 pos : SV_Position;
-    float4 color : COLOR;
+    float4 position : SV_Position;
+    float2 uv : TEXCOORD;
 };
 
 cbuffer GeomBuffer : register(b0)
@@ -23,9 +23,9 @@ cbuffer ViewBuffer : register(b1)
 VSOutput VSMain(VSInput input)
 {
     VSOutput output;
-    float4 WorldPos = float4(input.pos, 1.0f);
-    output.pos = mul(model, WorldPos);
-    output.pos = mul(view, output.pos);
-    output.color = input.color;
+    float4 WorldPos = float4(input.position, 1.0f);
+    output.position = mul(WorldPos, model);
+    output.position = mul(view, output.position);
+    output.uv = input.uv;
     return output;
 }
