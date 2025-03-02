@@ -56,11 +56,10 @@ float g_CameraMoveSpeed = 15.0f;
 float g_DeltaTime = 0.0f;
 bool g_Keys[256] = { false };
 
-// Глобальные переменные для управления мышью
-bool g_IsMouseDown = false; // Состояние левой кнопки мыши
-POINT g_LastMousePos = { 0, 0 }; // Последняя позиция мыши
-float g_Yaw = 0.0f; // Угол поворота по оси Y (в радианах)
-float g_Pitch = 0.0f; // Угол поворота по оси X (в радианах)
+bool g_IsMouseDown = false;
+POINT g_LastMousePos = { 0, 0 };
+float g_Yaw = 0.0f;
+float g_Pitch = 0.0f;
 bool g_IsPaused = false;
 
 struct GeomBuffer {
@@ -149,8 +148,7 @@ static const WORD Indices[] = {
     20, 22, 21, 20, 23, 22
 };
 
-SkyboxVertex skyboxVertices[] = {
-    // positions          
+SkyboxVertex skyboxVertices[] = {         
     {-1.0f,  1.0f, -1.0f},
     {-1.0f, -1.0f, -1.0f},
     { 1.0f, -1.0f, -1.0f},
@@ -193,26 +191,6 @@ SkyboxVertex skyboxVertices[] = {
     {-1.0f, -1.0f,  1.0f},
     { 1.0f, -1.0f,  1.0f}
 };
-
-//WORD skyboxIndices[] = {
-//    // Передняя грань
-//    0, 1, 2, 2, 1, 3,
-
-//    // Задняя грань
-//    4, 5, 6, 6, 5, 7,
-
-//    // Нижняя грань
-//    8, 9, 10, 10, 11, 8,
-
-//    // Верхняя грань
-//    12, 13, 14, 14, 15, 12,
-
-//    // Правая грань
-//    16, 17, 18, 18, 19, 16,
-
-//    // Левая грань
-//    20, 21, 22, 22, 23, 20
-//};
 
 LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
 HRESULT InitD3D(HWND hWnd);
@@ -285,62 +263,55 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
     switch (message) {
     case WM_MOUSEMOVE:
         if (g_IsMouseDown) {
-            // Получаем текущую позицию мыши
+
             POINT currentMousePos = { LOWORD(lParam), HIWORD(lParam) };
 
-            // Вычисляем разницу в движении мыши
             int deltaX = currentMousePos.x - g_LastMousePos.x;
             int deltaY = currentMousePos.y - g_LastMousePos.y;
 
-            // Обновляем углы камеры
-            g_Yaw += deltaX * 0.005f; // Чувствительность по оси Y
-            g_Pitch += deltaY * 0.005f; // Чувствительность по оси X
+            g_Yaw += deltaX * 0.005f;
+            g_Pitch += deltaY * 0.005f;
 
-            // Ограничиваем угол Pitch, чтобы камера не переворачивалась
             if (g_Pitch > DirectX::XM_PIDIV2) g_Pitch = DirectX::XM_PIDIV2;
             if (g_Pitch < -DirectX::XM_PIDIV2) g_Pitch = -DirectX::XM_PIDIV2;
 
-            // Обновляем последнюю позицию мыши
             g_LastMousePos = currentMousePos;
         }
         break;
 
     case WM_LBUTTONDOWN:
-        // Запоминаем позицию мыши и состояние кнопки
         g_LastMousePos = { LOWORD(lParam), HIWORD(lParam) };
         g_IsMouseDown = true;
         break;
 
     case WM_LBUTTONUP:
-        // Сбрасываем состояние кнопки
         g_IsMouseDown = false;
         break;
     case WM_KEYDOWN:
-        // Обработка клавиш для движения камеры
         switch (wParam) {
-        case 'W': // Движение вперед
+        case 'W':
             g_CameraPosition.x += sinf(g_Yaw) * g_CameraMoveSpeed * g_DeltaTime;
             g_CameraPosition.z += cosf(g_Yaw) * g_CameraMoveSpeed * g_DeltaTime;
             break;
-        case 'S': // Движение назад
+        case 'S':
             g_CameraPosition.x -= sinf(g_Yaw) * g_CameraMoveSpeed * g_DeltaTime;
             g_CameraPosition.z -= cosf(g_Yaw) * g_CameraMoveSpeed * g_DeltaTime;
             break;
-        case 'A': // Движение влево
+        case 'A':
             g_CameraPosition.x -= cosf(g_Yaw) * g_CameraMoveSpeed * g_DeltaTime;
             g_CameraPosition.z += sinf(g_Yaw) * g_CameraMoveSpeed * g_DeltaTime;
             break;
-        case 'D': // Движение вправо
+        case 'D':
             g_CameraPosition.x += cosf(g_Yaw) * g_CameraMoveSpeed * g_DeltaTime;
             g_CameraPosition.z -= sinf(g_Yaw) * g_CameraMoveSpeed * g_DeltaTime;
             break;
-        case VK_SPACE: // Движение вверх
+        case VK_SPACE:
             g_CameraPosition.y += g_CameraMoveSpeed * g_DeltaTime;
             break;
-        case VK_CONTROL: // Движение вниз
+        case VK_CONTROL:
             g_CameraPosition.y -= g_CameraMoveSpeed * g_DeltaTime;
             break;
-        case 'P': // Пауза/продолжение
+        case 'P':
             g_IsPaused = !g_IsPaused;
             break;
         }
@@ -479,25 +450,21 @@ HRESULT InitGraphics()
 {
     HRESULT hr = S_OK;
 
-    // Загрузка текстуры
     g_pTextureView = LoadTexture(L"Puppy.dds");
     if (!g_pTextureView) {
         return E_FAIL;
     }
 
-    // Загрузка cubemap текстуры
     g_pCubemapView = LoadCubemap(L"СubeMap.dds");
     if (!g_pCubemapView) {
         return E_FAIL;
     }
 
-    // Создание семплера
     g_pSamplerState = CreateSampler();
     if (!g_pSamplerState) {
         return E_FAIL;
     }
 
-    // Создание вершинного буфера для куба
     D3D11_BUFFER_DESC bd = {};
     bd.Usage = D3D11_USAGE_DEFAULT;
     bd.ByteWidth = sizeof(Vertices);
@@ -511,7 +478,6 @@ HRESULT InitGraphics()
         return hr;
     }
 
-    // Создание индексного буфера для куба
     D3D11_BUFFER_DESC ibd = {};
     ibd.Usage = D3D11_USAGE_DEFAULT;
     ibd.ByteWidth = sizeof(Indices);
@@ -525,7 +491,6 @@ HRESULT InitGraphics()
         return hr;
     }
 
-    // Создание константного буфера GeomBuffer
     D3D11_BUFFER_DESC cbDesc = {};
     cbDesc.Usage = D3D11_USAGE_DEFAULT;
     cbDesc.ByteWidth = sizeof(GeomBuffer);
@@ -577,7 +542,6 @@ HRESULT InitGraphics()
     flags |= D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION;
 #endif // _DEBUG
 
-    // Компиляция шейдеров для основного объекта (куба)
     hr = D3DCompileFromFile(L"VertexShader.hlsl", nullptr, D3D_COMPILE_STANDARD_FILE_INCLUDE,
         "VSMain", "vs_4_0", flags, 0, &vsBlob, nullptr);
     if (FAILED(hr))
@@ -607,7 +571,6 @@ HRESULT InitGraphics()
     vsBlob->Release();
     psBlob->Release();
 
-    // Компиляция шейдеров для skybox
     ID3DBlob* vsBlobSkyBox = nullptr;
     ID3DBlob* psBlobSkyBox = nullptr;
 
@@ -627,12 +590,6 @@ HRESULT InitGraphics()
     hr = g_pd3dDevice->CreateBuffer(&vpDescSky, &initData, &g_pSkyboxVertexBuffer);
     if (FAILED(hr))
         return hr;
-
-    /*ibd.ByteWidth = sizeof(skyboxIndices);
-    iinitData.pSysMem = skyboxIndices;
-    hr = g_pd3dDevice->CreateBuffer(&ibd, &iinitData, &g_pSkyboxIndexBuffer);
-    if (FAILED(hr))
-        return hr;*/
 
     hr = g_pd3dDevice->CreateVertexShader(vsBlobSkyBox->GetBufferPointer(), vsBlobSkyBox->GetBufferSize(), nullptr, &g_pSkyboxVertexShader);
     if (FAILED(hr))
@@ -669,19 +626,17 @@ ID3D11ShaderResourceView* LoadTexture(const std::wstring& filePath) {
 ID3D11ShaderResourceView* LoadCubemap(const std::wstring& filePath) {
     ID3D11ShaderResourceView* cubemapView = nullptr;
 
-    // Загрузка текстуры Cubemap из файла
     HRESULT hr = DirectX::CreateDDSTextureFromFile(
-        g_pd3dDevice, // Устройство Direct3D
-        filePath.c_str(), // Путь к файлу
-        nullptr, // Ресурс текстуры (не используется)
-        &cubemapView // Шейдерный ресурс
+        g_pd3dDevice,
+        filePath.c_str(),
+        nullptr,
+        &cubemapView
     );
 
     if (FAILED(hr)) {
         std::wstring errorMessage = L"Failed to load cubemap texture. HRESULT: " + std::to_wstring(hr);
         MessageBox(nullptr, errorMessage.c_str(), L"Error", MB_OK);
 
-        // Освобождаем ресурс, если он был частично создан
         if (cubemapView) {
             cubemapView->Release();
             cubemapView = nullptr;
@@ -690,7 +645,7 @@ ID3D11ShaderResourceView* LoadCubemap(const std::wstring& filePath) {
         return nullptr;
     }
 
-    return cubemapView; // Возвращаем указатель на шейдерный ресурс
+    return cubemapView;
 }
 
 ID3D11SamplerState* CreateSampler() {
@@ -728,7 +683,6 @@ void Render() {
         g_RotationAngle -= DirectX::XM_2PI;
     }
 
-    // Очистка рендер-таргета
     g_pImmediateContext->OMSetRenderTargets(1, &g_pRenderTargetView, nullptr);
     g_pImmediateContext->ClearRenderTargetView(g_pRenderTargetView, reinterpret_cast<const float*>(&g_ClearColor));
 
@@ -742,7 +696,7 @@ void Render() {
 
     // Позиция камеры
     DirectX::XMVECTOR eye = DirectX::XMVectorSet(g_CameraPosition.x, g_CameraPosition.y, g_CameraPosition.z, 0.0f);
-    DirectX::XMVECTOR at = DirectX::XMVectorAdd(eye, forward); // Направление камеры
+    DirectX::XMVECTOR at = DirectX::XMVectorAdd(eye, forward);
     DirectX::XMVECTOR up = DirectX::XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
 
     constexpr float fovAngleY = DirectX::XMConvertToRadians(60.0f);
@@ -751,12 +705,12 @@ void Render() {
 
     // Обновление матриц для skybox
     VPBufferSkyBox vpBufferSkyBox;
-    vpBufferSkyBox.vp = DirectX::XMMatrixMultiply(viewMatrix, projectionMatrix);  // Матрица вида
-    vpBufferSkyBox.cameraPos = DirectX::XMFLOAT4(g_CameraPosition.x, g_CameraPosition.y, g_CameraPosition.z, 1.0f);  // Матрица проекции
+    vpBufferSkyBox.vp = DirectX::XMMatrixMultiply(viewMatrix, projectionMatrix);
+    vpBufferSkyBox.cameraPos = DirectX::XMFLOAT4(g_CameraPosition.x, g_CameraPosition.y, g_CameraPosition.z, 1.0f);
 
     GeomBufferSkyBox geomBufferSkyBox;
-    geomBufferSkyBox.model = DirectX::XMMatrixIdentity(); // Матрица модели для skybox (без изменений)
-    geomBufferSkyBox.size = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f); // Масштаб skybox (1.0f — без изменений)
+    geomBufferSkyBox.model = DirectX::XMMatrixIdentity();
+    geomBufferSkyBox.size = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
 
     g_pImmediateContext->UpdateSubresource(g_pGeomBufferSkyBox, 0, nullptr, &geomBufferSkyBox, 0, 0);
 
@@ -788,7 +742,7 @@ void Render() {
         g_pImmediateContext->VSSetConstantBuffers(0, 1, &g_pVPBufferSkyBox);
         g_pImmediateContext->VSSetConstantBuffers(1, 1, &g_pGeomBufferSkyBox);
 
-        g_pImmediateContext->Draw(36, 0); // Отрисовка 36 вершин (6 граней по 2 треугольника)
+        g_pImmediateContext->Draw(36, 0);
     }
     else {
         OutputDebugStringA("Skybox texture is not loaded.\n");
@@ -837,7 +791,6 @@ void Render() {
         OutputDebugStringA("Cube texture is not loaded.\n");
     }
 
-    // Отображение результата
     g_pSwapChain->Present(0, 0);
 }
 
