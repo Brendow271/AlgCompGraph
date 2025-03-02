@@ -56,6 +56,12 @@ float g_CameraMoveSpeed = 15.0f;
 float g_DeltaTime = 0.0f;
 bool g_Keys[256] = { false };
 
+// Глобальные переменные для управления мышью
+bool g_IsMouseDown = false; // Состояние левой кнопки мыши
+POINT g_LastMousePos = { 0, 0 }; // Последняя позиция мыши
+float g_Yaw = 0.0f; // Угол поворота по оси Y (в радианах)
+float g_Pitch = 0.0f; // Угол поворота по оси X (в радианах)
+bool g_IsPaused = false;
 
 struct GeomBuffer {
     DirectX::XMMATRIX model;
@@ -72,7 +78,7 @@ struct GeomBufferSkyBox {
 
 struct VPBufferSkyBox {
     DirectX::XMMATRIX vp;
-    DirectX::XMFLOAT3 cameraPos;
+    DirectX::XMFLOAT4 cameraPos;
 };
 
 struct TextureVertex {
@@ -80,25 +86,29 @@ struct TextureVertex {
     DirectX::XMFLOAT2 uv;
 };
 
+struct SkyboxVertex {
+    float x, y, z;
+};
+
 static const TextureVertex Vertices[] = {
-    
+
     // Нижняя грань
     { DirectX::XMFLOAT3(-0.5f, -0.5f,  0.5f), DirectX::XMFLOAT2(0.0f, 1.0f) },
-    { DirectX::XMFLOAT3( 0.5f, -0.5f,  0.5f), DirectX::XMFLOAT2(1.0f, 1.0f) },
-    { DirectX::XMFLOAT3( 0.5f, -0.5f, -0.5f), DirectX::XMFLOAT2(1.0f, 0.0f) },
+    { DirectX::XMFLOAT3(0.5f, -0.5f,  0.5f), DirectX::XMFLOAT2(1.0f, 1.0f) },
+    { DirectX::XMFLOAT3(0.5f, -0.5f, -0.5f), DirectX::XMFLOAT2(1.0f, 0.0f) },
     { DirectX::XMFLOAT3(-0.5f, -0.5f, -0.5f), DirectX::XMFLOAT2(0.0f, 0.0f) },
 
     // Верхняя грань
     { DirectX::XMFLOAT3(-0.5f,  0.5f, -0.5f), DirectX::XMFLOAT2(0.0f, 1.0f) },
-    { DirectX::XMFLOAT3( 0.5f,  0.5f, -0.5f), DirectX::XMFLOAT2(1.0f, 1.0f) },
-    { DirectX::XMFLOAT3( 0.5f,  0.5f,  0.5f), DirectX::XMFLOAT2(1.0f, 0.0f) },
+    { DirectX::XMFLOAT3(0.5f,  0.5f, -0.5f), DirectX::XMFLOAT2(1.0f, 1.0f) },
+    { DirectX::XMFLOAT3(0.5f,  0.5f,  0.5f), DirectX::XMFLOAT2(1.0f, 0.0f) },
     { DirectX::XMFLOAT3(-0.5f,  0.5f,  0.5f), DirectX::XMFLOAT2(0.0f, 0.0f) },
 
     // Передняя грань
-    { DirectX::XMFLOAT3( 0.5f, -0.5f, -0.5f), DirectX::XMFLOAT2(0.0f, 1.0f) },
-    { DirectX::XMFLOAT3( 0.5f, -0.5f,  0.5f), DirectX::XMFLOAT2(1.0f, 1.0f) },
-    { DirectX::XMFLOAT3( 0.5f,  0.5f,  0.5f), DirectX::XMFLOAT2(1.0f, 0.0f) },
-    { DirectX::XMFLOAT3( 0.5f,  0.5f, -0.5f), DirectX::XMFLOAT2(0.0f, 0.0f) },
+    { DirectX::XMFLOAT3(0.5f, -0.5f, -0.5f), DirectX::XMFLOAT2(0.0f, 1.0f) },
+    { DirectX::XMFLOAT3(0.5f, -0.5f,  0.5f), DirectX::XMFLOAT2(1.0f, 1.0f) },
+    { DirectX::XMFLOAT3(0.5f,  0.5f,  0.5f), DirectX::XMFLOAT2(1.0f, 0.0f) },
+    { DirectX::XMFLOAT3(0.5f,  0.5f, -0.5f), DirectX::XMFLOAT2(0.0f, 0.0f) },
 
     // Задняя грань
     { DirectX::XMFLOAT3(-0.5f, -0.5f,  0.5f), DirectX::XMFLOAT2(0.0f, 1.0f) },
@@ -107,37 +117,17 @@ static const TextureVertex Vertices[] = {
     { DirectX::XMFLOAT3(-0.5f,  0.5f,  0.5f), DirectX::XMFLOAT2(0.0f, 0.0f) },
 
     // Левая грань
-    { DirectX::XMFLOAT3( 0.5f, -0.5f,  0.5f), DirectX::XMFLOAT2(0.0f, 1.0f) },
+    { DirectX::XMFLOAT3(0.5f, -0.5f,  0.5f), DirectX::XMFLOAT2(0.0f, 1.0f) },
     { DirectX::XMFLOAT3(-0.5f, -0.5f,  0.5f), DirectX::XMFLOAT2(1.0f, 1.0f) },
     { DirectX::XMFLOAT3(-0.5f,  0.5f,  0.5f), DirectX::XMFLOAT2(1.0f, 0.0f) },
-    { DirectX::XMFLOAT3( 0.5f,  0.5f,  0.5f), DirectX::XMFLOAT2(0.0f, 0.0f) },
+    { DirectX::XMFLOAT3(0.5f,  0.5f,  0.5f), DirectX::XMFLOAT2(0.0f, 0.0f) },
 
     // Правая грань
     { DirectX::XMFLOAT3(-0.5f, -0.5f, -0.5f), DirectX::XMFLOAT2(0.0f, 1.0f) },
-    { DirectX::XMFLOAT3( 0.5f, -0.5f, -0.5f), DirectX::XMFLOAT2(1.0f, 1.0f) },
-    { DirectX::XMFLOAT3( 0.5f,  0.5f, -0.5f), DirectX::XMFLOAT2(1.0f, 0.0f) },
-    { DirectX::XMFLOAT3(-0.5f,  0.5f, -0.5f), DirectX::XMFLOAT2(0.0f, 0.0f) }   
+    { DirectX::XMFLOAT3(0.5f, -0.5f, -0.5f), DirectX::XMFLOAT2(1.0f, 1.0f) },
+    { DirectX::XMFLOAT3(0.5f,  0.5f, -0.5f), DirectX::XMFLOAT2(1.0f, 0.0f) },
+    { DirectX::XMFLOAT3(-0.5f,  0.5f, -0.5f), DirectX::XMFLOAT2(0.0f, 0.0f) }
 };
-
-//WORD Indices[] = {
-//    0, 1, 2,
-//    0, 2, 3,
-//
-//    4, 6, 5,
-//    4, 7, 6,
-//
-//    4, 5, 1,
-//    4, 1, 0,
-//
-//    3, 2, 6,
-//    3, 6, 7,
-//
-//    1, 5, 6,
-//    1, 6, 2,
-//
-//    4, 0, 3,
-//    4, 3, 7
-//};
 
 static const WORD Indices[] = {
     // Передняя грань
@@ -159,7 +149,70 @@ static const WORD Indices[] = {
     20, 22, 21, 20, 23, 22
 };
 
+SkyboxVertex skyboxVertices[] = {
+    // positions          
+    {-1.0f,  1.0f, -1.0f},
+    {-1.0f, -1.0f, -1.0f},
+    { 1.0f, -1.0f, -1.0f},
+    { 1.0f, -1.0f, -1.0f},
+    { 1.0f,  1.0f, -1.0f},
+    {-1.0f,  1.0f, -1.0f},
 
+    {-1.0f, -1.0f,  1.0f},
+    {-1.0f, -1.0f, -1.0f},
+    {-1.0f,  1.0f, -1.0f},
+    {-1.0f,  1.0f, -1.0f},
+    {-1.0f,  1.0f,  1.0f},
+    {-1.0f, -1.0f,  1.0f},
+
+    { 1.0f, -1.0f, -1.0f},
+    { 1.0f, -1.0f,  1.0f},
+    { 1.0f,  1.0f,  1.0f},
+    { 1.0f,  1.0f,  1.0f},
+    { 1.0f,  1.0f, -1.0f},
+    { 1.0f, -1.0f, -1.0f},
+
+    {-1.0f, -1.0f,  1.0f},
+    {-1.0f,  1.0f,  1.0f},
+    { 1.0f,  1.0f,  1.0f},
+    { 1.0f,  1.0f,  1.0f},
+    { 1.0f, -1.0f,  1.0f},
+    {-1.0f, -1.0f,  1.0f},
+
+    {-1.0f,  1.0f, -1.0f},
+    { 1.0f,  1.0f, -1.0f},
+    { 1.0f,  1.0f,  1.0f},
+    { 1.0f,  1.0f,  1.0f},
+    {-1.0f,  1.0f,  1.0f},
+    {-1.0f,  1.0f, -1.0f},
+
+    {-1.0f, -1.0f, -1.0f},
+    {-1.0f, -1.0f,  1.0f},
+    { 1.0f, -1.0f, -1.0f},
+    { 1.0f, -1.0f, -1.0f},
+    {-1.0f, -1.0f,  1.0f},
+    { 1.0f, -1.0f,  1.0f}
+};
+
+//WORD skyboxIndices[] = {
+//    // Передняя грань
+//    0, 1, 2, 2, 1, 3,
+
+//    // Задняя грань
+//    4, 5, 6, 6, 5, 7,
+
+//    // Нижняя грань
+//    8, 9, 10, 10, 11, 8,
+
+//    // Верхняя грань
+//    12, 13, 14, 14, 15, 12,
+
+//    // Правая грань
+//    16, 17, 18, 18, 19, 16,
+
+//    // Левая грань
+//    20, 21, 22, 22, 23, 20
+//};
 
 LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
 HRESULT InitD3D(HWND hWnd);
@@ -168,7 +221,7 @@ void Render();
 HRESULT InitGraphics();
 
 ID3D11ShaderResourceView* LoadTexture(const std::wstring& filePath);
-ID3D11ShaderResourceView* LoadCubemap();
+ID3D11ShaderResourceView* LoadCubemap(const std::wstring& filePath);
 ID3D11SamplerState* CreateSampler();
 
 
@@ -230,25 +283,65 @@ int APIENTRY WinMain(
 
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
     switch (message) {
+    case WM_MOUSEMOVE:
+        if (g_IsMouseDown) {
+            // Получаем текущую позицию мыши
+            POINT currentMousePos = { LOWORD(lParam), HIWORD(lParam) };
+
+            // Вычисляем разницу в движении мыши
+            int deltaX = currentMousePos.x - g_LastMousePos.x;
+            int deltaY = currentMousePos.y - g_LastMousePos.y;
+
+            // Обновляем углы камеры
+            g_Yaw += deltaX * 0.005f; // Чувствительность по оси Y
+            g_Pitch += deltaY * 0.005f; // Чувствительность по оси X
+
+            // Ограничиваем угол Pitch, чтобы камера не переворачивалась
+            if (g_Pitch > DirectX::XM_PIDIV2) g_Pitch = DirectX::XM_PIDIV2;
+            if (g_Pitch < -DirectX::XM_PIDIV2) g_Pitch = -DirectX::XM_PIDIV2;
+
+            // Обновляем последнюю позицию мыши
+            g_LastMousePos = currentMousePos;
+        }
+        break;
+
+    case WM_LBUTTONDOWN:
+        // Запоминаем позицию мыши и состояние кнопки
+        g_LastMousePos = { LOWORD(lParam), HIWORD(lParam) };
+        g_IsMouseDown = true;
+        break;
+
+    case WM_LBUTTONUP:
+        // Сбрасываем состояние кнопки
+        g_IsMouseDown = false;
+        break;
     case WM_KEYDOWN:
+        // Обработка клавиш для движения камеры
         switch (wParam) {
-        case 'W':
-            g_CameraPosition.z += g_CameraMoveSpeed * g_DeltaTime;
+        case 'W': // Движение вперед
+            g_CameraPosition.x += sinf(g_Yaw) * g_CameraMoveSpeed * g_DeltaTime;
+            g_CameraPosition.z += cosf(g_Yaw) * g_CameraMoveSpeed * g_DeltaTime;
             break;
-        case 'S':
-            g_CameraPosition.z -= g_CameraMoveSpeed * g_DeltaTime;
+        case 'S': // Движение назад
+            g_CameraPosition.x -= sinf(g_Yaw) * g_CameraMoveSpeed * g_DeltaTime;
+            g_CameraPosition.z -= cosf(g_Yaw) * g_CameraMoveSpeed * g_DeltaTime;
             break;
-        case 'A':
-            g_CameraPosition.x -= g_CameraMoveSpeed * g_DeltaTime;
+        case 'A': // Движение влево
+            g_CameraPosition.x -= cosf(g_Yaw) * g_CameraMoveSpeed * g_DeltaTime;
+            g_CameraPosition.z += sinf(g_Yaw) * g_CameraMoveSpeed * g_DeltaTime;
             break;
-        case 'D':
-            g_CameraPosition.x += g_CameraMoveSpeed * g_DeltaTime;
+        case 'D': // Движение вправо
+            g_CameraPosition.x += cosf(g_Yaw) * g_CameraMoveSpeed * g_DeltaTime;
+            g_CameraPosition.z -= sinf(g_Yaw) * g_CameraMoveSpeed * g_DeltaTime;
             break;
-        case 'Q':
+        case VK_SPACE: // Движение вверх
             g_CameraPosition.y += g_CameraMoveSpeed * g_DeltaTime;
             break;
-        case 'E':
+        case VK_CONTROL: // Движение вниз
             g_CameraPosition.y -= g_CameraMoveSpeed * g_DeltaTime;
+            break;
+        case 'P': // Пауза/продолжение
+            g_IsPaused = !g_IsPaused;
             break;
         }
         break;
@@ -393,7 +486,7 @@ HRESULT InitGraphics()
     }
 
     // Загрузка cubemap текстуры
-    g_pCubemapView = LoadCubemap();
+    g_pCubemapView = LoadCubemap(L"СubeMap.dds");
     if (!g_pCubemapView) {
         return E_FAIL;
     }
@@ -404,6 +497,7 @@ HRESULT InitGraphics()
         return E_FAIL;
     }
 
+    // Создание вершинного буфера для куба
     D3D11_BUFFER_DESC bd = {};
     bd.Usage = D3D11_USAGE_DEFAULT;
     bd.ByteWidth = sizeof(Vertices);
@@ -412,9 +506,12 @@ HRESULT InitGraphics()
     initData.pSysMem = Vertices;
 
     hr = g_pd3dDevice->CreateBuffer(&bd, &initData, &g_pVertexBuffer);
-    if (FAILED(hr))
+    if (FAILED(hr)) {
+        MessageBox(nullptr, L"Failed to create VertexBuffer.", L"Error", MB_OK);
         return hr;
+    }
 
+    // Создание индексного буфера для куба
     D3D11_BUFFER_DESC ibd = {};
     ibd.Usage = D3D11_USAGE_DEFAULT;
     ibd.ByteWidth = sizeof(Indices);
@@ -423,9 +520,12 @@ HRESULT InitGraphics()
     iinitData.pSysMem = Indices;
 
     hr = g_pd3dDevice->CreateBuffer(&ibd, &iinitData, &g_pIndexBuffer);
-    if (FAILED(hr))
+    if (FAILED(hr)) {
+        MessageBox(nullptr, L"Failed to create IndexBuffer.", L"Error", MB_OK);
         return hr;
+    }
 
+    // Создание константного буфера GeomBuffer
     D3D11_BUFFER_DESC cbDesc = {};
     cbDesc.Usage = D3D11_USAGE_DEFAULT;
     cbDesc.ByteWidth = sizeof(GeomBuffer);
@@ -433,8 +533,10 @@ HRESULT InitGraphics()
     cbDesc.CPUAccessFlags = 0;
 
     hr = g_pd3dDevice->CreateBuffer(&cbDesc, nullptr, &g_pGeomBuffer);
-    if (FAILED(hr))
+    if (FAILED(hr)) {
+        MessageBox(nullptr, L"Failed to create GeomBuffer.", L"Error", MB_OK);
         return hr;
+    }
 
     D3D11_BUFFER_DESC vpDesc = {};
     vpDesc.Usage = D3D11_USAGE_DYNAMIC;
@@ -457,10 +559,10 @@ HRESULT InitGraphics()
         return hr;
 
     D3D11_BUFFER_DESC vpDescSky = {};
-    vpDescSky.Usage = D3D11_USAGE_DEFAULT;
+    vpDescSky.Usage = D3D11_USAGE_DYNAMIC;
     vpDescSky.ByteWidth = sizeof(VPBufferSkyBox);
     vpDescSky.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-    vpDescSky.CPUAccessFlags = 0;
+    vpDescSky.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
 
     hr = g_pd3dDevice->CreateBuffer(&vpDescSky, nullptr, &g_pVPBufferSkyBox);
     if (FAILED(hr))
@@ -475,6 +577,7 @@ HRESULT InitGraphics()
     flags |= D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION;
 #endif // _DEBUG
 
+    // Компиляция шейдеров для основного объекта (куба)
     hr = D3DCompileFromFile(L"VertexShader.hlsl", nullptr, D3D_COMPILE_STANDARD_FILE_INCLUDE,
         "VSMain", "vs_4_0", flags, 0, &vsBlob, nullptr);
     if (FAILED(hr))
@@ -494,8 +597,8 @@ HRESULT InitGraphics()
         return hr;
 
     D3D11_INPUT_ELEMENT_DESC layout[] = {
-     { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
-     { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+        { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+        { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0 },
     };
     hr = g_pd3dDevice->CreateInputLayout(layout, ARRAYSIZE(layout), vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), &g_pVertexLayout);
     if (FAILED(hr))
@@ -503,122 +606,51 @@ HRESULT InitGraphics()
 
     vsBlob->Release();
     psBlob->Release();
-    
-    // Compile skybox shaders
+
+    // Компиляция шейдеров для skybox
+    ID3DBlob* vsBlobSkyBox = nullptr;
+    ID3DBlob* psBlobSkyBox = nullptr;
+
     hr = D3DCompileFromFile(L"SphereVertexShader.hlsl", nullptr, D3D_COMPILE_STANDARD_FILE_INCLUDE,
-        "VSMain", "vs_4_0", flags, 0, &vsBlob, nullptr);
+        "VSMain", "vs_4_0", flags, 0, &vsBlobSkyBox, nullptr);
     if (FAILED(hr))
         return hr;
 
     hr = D3DCompileFromFile(L"SpherePixelShader.hlsl", nullptr, D3D_COMPILE_STANDARD_FILE_INCLUDE,
-        "PSMain", "ps_4_0", flags, 0, &psBlob, nullptr);
+        "PSMain", "ps_4_0", flags, 0, &psBlobSkyBox, nullptr);
     if (FAILED(hr))
         return hr;
 
-    float skyboxVertices[] = {
-        // positions          
-        -1.0f,  1.0f, -1.0f,
-        -1.0f, -1.0f, -1.0f,
-         1.0f, -1.0f, -1.0f,
-         1.0f, -1.0f, -1.0f,
-         1.0f,  1.0f, -1.0f,
-        -1.0f,  1.0f, -1.0f,
-
-        -1.0f, -1.0f,  1.0f,
-        -1.0f, -1.0f, -1.0f,
-        -1.0f,  1.0f, -1.0f,
-        -1.0f,  1.0f, -1.0f,
-        -1.0f,  1.0f,  1.0f,
-        -1.0f, -1.0f,  1.0f,
-
-         1.0f, -1.0f, -1.0f,
-         1.0f, -1.0f,  1.0f,
-         1.0f,  1.0f,  1.0f,
-         1.0f,  1.0f,  1.0f,
-         1.0f,  1.0f, -1.0f,
-         1.0f, -1.0f, -1.0f,
-
-        -1.0f, -1.0f,  1.0f,
-        -1.0f,  1.0f,  1.0f,
-         1.0f,  1.0f,  1.0f,
-         1.0f,  1.0f,  1.0f,
-         1.0f, -1.0f,  1.0f,
-        -1.0f, -1.0f,  1.0f,
-
-        -1.0f,  1.0f, -1.0f,
-         1.0f,  1.0f, -1.0f,
-         1.0f,  1.0f,  1.0f,
-         1.0f,  1.0f,  1.0f,
-        -1.0f,  1.0f,  1.0f,
-        -1.0f,  1.0f, -1.0f,
-
-        -1.0f, -1.0f, -1.0f,
-        -1.0f, -1.0f,  1.0f,
-         1.0f, -1.0f, -1.0f,
-         1.0f, -1.0f, -1.0f,
-        -1.0f, -1.0f,  1.0f,
-         1.0f, -1.0f,  1.0f
-    };
-
-    //WORD skyboxIndices[] = {
-    //    // Индексы для граней куба
-    //    0, 1, 2, 2, 1, 3,
-    //    4, 5, 6, 6, 5, 7,
-    //    0, 2, 6, 6, 4, 0,
-    //    1, 3, 7, 7, 5, 1,
-    //    2, 3, 7, 7, 6, 2,
-    //    0, 1, 5, 5, 4, 0
-    //};
-
-    WORD skyboxIndices[] = {
-        // Передняя грань
-        0, 1, 2, 2, 1, 3,
-
-        // Задняя грань
-        4, 5, 6, 6, 5, 7,
-
-        // Нижняя грань
-        8, 9, 10, 10, 11, 8,
-
-        // Верхняя грань
-        12, 13, 14, 14, 15, 12,
-
-        // Правая грань
-        16, 17, 18, 18, 19, 16,
-
-        // Левая грань
-        20, 21, 22, 22, 23, 20
-    };
-
-    bd.ByteWidth = sizeof(skyboxVertices);
+    vpDescSky.ByteWidth = sizeof(skyboxVertices);
+    vpDescSky.BindFlags = D3D11_BIND_VERTEX_BUFFER;
     initData.pSysMem = skyboxVertices;
-    hr = g_pd3dDevice->CreateBuffer(&bd, &initData, &g_pSkyboxVertexBuffer);
+    hr = g_pd3dDevice->CreateBuffer(&vpDescSky, &initData, &g_pSkyboxVertexBuffer);
     if (FAILED(hr))
         return hr;
 
-    ibd.ByteWidth = sizeof(skyboxIndices);
+    /*ibd.ByteWidth = sizeof(skyboxIndices);
     iinitData.pSysMem = skyboxIndices;
     hr = g_pd3dDevice->CreateBuffer(&ibd, &iinitData, &g_pSkyboxIndexBuffer);
     if (FAILED(hr))
-        return hr;
+        return hr;*/
 
-    hr = g_pd3dDevice->CreateVertexShader(vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), nullptr, &g_pSkyboxVertexShader);
+    hr = g_pd3dDevice->CreateVertexShader(vsBlobSkyBox->GetBufferPointer(), vsBlobSkyBox->GetBufferSize(), nullptr, &g_pSkyboxVertexShader);
     if (FAILED(hr))
         return hr;
 
-    hr = g_pd3dDevice->CreatePixelShader(psBlob->GetBufferPointer(), psBlob->GetBufferSize(), nullptr, &g_pSkyboxPixelShader);
+    hr = g_pd3dDevice->CreatePixelShader(psBlobSkyBox->GetBufferPointer(), psBlobSkyBox->GetBufferSize(), nullptr, &g_pSkyboxPixelShader);
     if (FAILED(hr))
         return hr;
 
     D3D11_INPUT_ELEMENT_DESC skyboxLayout[] = {
         { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
     };
-    hr = g_pd3dDevice->CreateInputLayout(skyboxLayout, ARRAYSIZE(skyboxLayout), vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), &g_pSkyboxVertexLayout);
+    hr = g_pd3dDevice->CreateInputLayout(skyboxLayout, ARRAYSIZE(skyboxLayout), vsBlobSkyBox->GetBufferPointer(), vsBlobSkyBox->GetBufferSize(), &g_pSkyboxVertexLayout);
     if (FAILED(hr))
         return hr;
 
-    vsBlob->Release();
-    psBlob->Release();
+    vsBlobSkyBox->Release();
+    psBlobSkyBox->Release();
 
     return S_OK;
 }
@@ -634,72 +666,31 @@ ID3D11ShaderResourceView* LoadTexture(const std::wstring& filePath) {
     return textureView;
 }
 
-ID3D11ShaderResourceView* LoadCubemap() {
+ID3D11ShaderResourceView* LoadCubemap(const std::wstring& filePath) {
     ID3D11ShaderResourceView* cubemapView = nullptr;
-    ID3D11Texture2D* cubemapTexture = nullptr;
 
-    const std::wstring textureNames[6] = {
-        L"px.dds", L"nx.dds",
-        L"py.dds", L"ny.dds",
-        L"pz.dds", L"nz.dds"
-    };
+    // Загрузка текстуры Cubemap из файла
+    HRESULT hr = DirectX::CreateDDSTextureFromFile(
+        g_pd3dDevice, // Устройство Direct3D
+        filePath.c_str(), // Путь к файлу
+        nullptr, // Ресурс текстуры (не используется)
+        &cubemapView // Шейдерный ресурс
+    );
 
-    D3D11_TEXTURE2D_DESC textureDesc = {};
-    textureDesc.Width = 480; // Assuming all textures are 1024x1024
-    textureDesc.Height = 480;
-    textureDesc.MipLevels = 1;
-    textureDesc.ArraySize = 6;
-    textureDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-    textureDesc.SampleDesc.Count = 1;
-    textureDesc.Usage = D3D11_USAGE_IMMUTABLE;
-    textureDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-    textureDesc.CPUAccessFlags = 0;
-    textureDesc.MiscFlags = D3D11_RESOURCE_MISC_TEXTURECUBE;
+    if (FAILED(hr)) {
+        std::wstring errorMessage = L"Failed to load cubemap texture. HRESULT: " + std::to_wstring(hr);
+        MessageBox(nullptr, errorMessage.c_str(), L"Error", MB_OK);
 
-    std::vector<D3D11_SUBRESOURCE_DATA> subresources(6);
-
-    for (int i = 0; i < 6; ++i) {
-
-        //ID3D11Texture2D* texture = nullptr;
-        DirectX::TexMetadata info;
-        DirectX::ScratchImage image;
-
-        HRESULT hr = DirectX::LoadFromDDSFile(textureNames[i].c_str(), DirectX::DDS_FLAGS_NONE, &info, image);
-        if (FAILED(hr)) {
-            MessageBox(nullptr, L"Failed to load cubemap texture.", L"Error", MB_OK);
-            return nullptr;
+        // Освобождаем ресурс, если он был частично создан
+        if (cubemapView) {
+            cubemapView->Release();
+            cubemapView = nullptr;
         }
-      
-        D3D11_TEXTURE2D_DESC desc;
-        //texture->GetDesc(&desc);
-        subresources[i].pSysMem = image.GetPixels(); //?
-        subresources[i].SysMemPitch = info.width;
-        subresources[i].SysMemSlicePitch = 0;
 
-        //texture->Release();
-    }
-
-    HRESULT hr = g_pd3dDevice->CreateTexture2D(&textureDesc, subresources.data(), &cubemapTexture);
-    if (FAILED(hr)) {
-        MessageBox(nullptr, L"Failed to create cubemap texture.", L"Error", MB_OK);
         return nullptr;
     }
 
-    D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
-    srvDesc.Format = textureDesc.Format;
-    srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURECUBE;
-    srvDesc.TextureCube.MostDetailedMip = 0;
-    srvDesc.TextureCube.MipLevels = 1;
-
-    hr = g_pd3dDevice->CreateShaderResourceView(cubemapTexture, &srvDesc, &cubemapView);
-    if (FAILED(hr)) {
-        MessageBox(nullptr, L"Failed to create cubemap shader resource view.", L"Error", MB_OK);
-        cubemapTexture->Release();
-        return nullptr;
-    }
-
-    cubemapTexture->Release();
-    return cubemapView;
+    return cubemapView; // Возвращаем указатель на шейдерный ресурс
 }
 
 ID3D11SamplerState* CreateSampler() {
@@ -737,88 +728,116 @@ void Render() {
         g_RotationAngle -= DirectX::XM_2PI;
     }
 
+    // Очистка рендер-таргета
     g_pImmediateContext->OMSetRenderTargets(1, &g_pRenderTargetView, nullptr);
     g_pImmediateContext->ClearRenderTargetView(g_pRenderTargetView, reinterpret_cast<const float*>(&g_ClearColor));
 
+    // Вычисляем направление камеры на основе углов Yaw и Pitch
+    DirectX::XMVECTOR forward = DirectX::XMVectorSet(
+        cosf(g_Pitch) * sinf(g_Yaw),
+        sinf(g_Pitch),
+        cosf(g_Pitch) * cosf(g_Yaw),
+        0.0f
+    );
+
+    // Позиция камеры
+    DirectX::XMVECTOR eye = DirectX::XMVectorSet(g_CameraPosition.x, g_CameraPosition.y, g_CameraPosition.z, 0.0f);
+    DirectX::XMVECTOR at = DirectX::XMVectorAdd(eye, forward); // Направление камеры
+    DirectX::XMVECTOR up = DirectX::XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
+
+    constexpr float fovAngleY = DirectX::XMConvertToRadians(60.0f);
+    DirectX::XMMATRIX viewMatrix = DirectX::XMMatrixLookAtLH(eye, at, up);
+    DirectX::XMMATRIX projectionMatrix = DirectX::XMMatrixPerspectiveFovLH(fovAngleY, 800.0f / 600.0f, 0.01f, 100.0f);
+
+    // Обновление матриц для skybox
+    VPBufferSkyBox vpBufferSkyBox;
+    vpBufferSkyBox.vp = DirectX::XMMatrixMultiply(viewMatrix, projectionMatrix);  // Матрица вида
+    vpBufferSkyBox.cameraPos = DirectX::XMFLOAT4(g_CameraPosition.x, g_CameraPosition.y, g_CameraPosition.z, 1.0f);  // Матрица проекции
+
+    GeomBufferSkyBox geomBufferSkyBox;
+    geomBufferSkyBox.model = DirectX::XMMatrixIdentity(); // Матрица модели для skybox (без изменений)
+    geomBufferSkyBox.size = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f); // Масштаб skybox (1.0f — без изменений)
+
+    g_pImmediateContext->UpdateSubresource(g_pGeomBufferSkyBox, 0, nullptr, &geomBufferSkyBox, 0, 0);
+
+    D3D11_MAPPED_SUBRESOURCE mappedResourceSkyBox;
+    HRESULT hr = g_pImmediateContext->Map(g_pVPBufferSkyBox, 0, D3D11_MAP_WRITE_DISCARD, 0, &mappedResourceSkyBox);
+    if (SUCCEEDED(hr)) {
+        memcpy(mappedResourceSkyBox.pData, &vpBufferSkyBox, sizeof(vpBufferSkyBox));
+        g_pImmediateContext->Unmap(g_pVPBufferSkyBox, 0);
+    }
+    else {
+        OutputDebugStringA("Failed to map VPBufferSkyBox.\n");
+    }
+
+
+    // Отрисовка skybox
+    if (g_pCubemapView) {
+        UINT stride = sizeof(SkyboxVertex);
+        UINT offset = 0;
+
+        g_pImmediateContext->VSSetShader(g_pSkyboxVertexShader, nullptr, 0);
+        g_pImmediateContext->PSSetShader(g_pSkyboxPixelShader, nullptr, 0);
+        g_pImmediateContext->PSSetShaderResources(0, 1, &g_pCubemapView);
+        g_pImmediateContext->PSSetSamplers(0, 1, &g_pSamplerState);
+        g_pImmediateContext->IASetInputLayout(g_pSkyboxVertexLayout);
+
+        g_pImmediateContext->IASetVertexBuffers(0, 1, &g_pSkyboxVertexBuffer, &stride, &offset);
+        g_pImmediateContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+        g_pImmediateContext->VSSetConstantBuffers(0, 1, &g_pVPBufferSkyBox);
+        g_pImmediateContext->VSSetConstantBuffers(1, 1, &g_pGeomBufferSkyBox);
+
+        g_pImmediateContext->Draw(36, 0); // Отрисовка 36 вершин (6 граней по 2 треугольника)
+    }
+    else {
+        OutputDebugStringA("Skybox texture is not loaded.\n");
+    }
+
+    // Обновление матриц для основного объекта (куба)
     GeomBuffer geomBuffer;
     VPBuffer vpBuffer;
 
     geomBuffer.model = DirectX::XMMatrixRotationY(g_RotationAngle);
-
-    DirectX::XMVECTOR eye = DirectX::XMVectorSet(g_CameraPosition.x, g_CameraPosition.y, g_CameraPosition.z, 0.0f);
-    DirectX::XMVECTOR at = DirectX::XMVectorSet(0.0f, 0.0f, 0.0f, 0.0f);
-    DirectX::XMVECTOR up = DirectX::XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
-
-    constexpr float fovAngleY = DirectX::XMConvertToRadians(60.0f);
-    vpBuffer.vp = DirectX::XMMatrixMultiply(
-        DirectX::XMMatrixLookAtLH(eye, at, up),
-        DirectX::XMMatrixPerspectiveFovLH(fovAngleY, 800.0f / 600.0f, 0.01f, 100.0f)
-    );
-    
+    vpBuffer.vp = DirectX::XMMatrixMultiply(viewMatrix, projectionMatrix);
 
     g_pImmediateContext->UpdateSubresource(g_pGeomBuffer, 0, nullptr, &geomBuffer, 0, 0);
 
     D3D11_MAPPED_SUBRESOURCE mappedResource;
-    g_pImmediateContext->Map(g_pVPBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mappedResource);
-    memcpy(mappedResource.pData, &vpBuffer, sizeof(VPBuffer));
-    g_pImmediateContext->Unmap(g_pVPBuffer, 0);
+    if (SUCCEEDED(g_pImmediateContext->Map(g_pVPBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mappedResource))) {
+        memcpy(mappedResource.pData, &vpBuffer, sizeof(VPBuffer));
+        g_pImmediateContext->Unmap(g_pVPBuffer, 0);
+    }
+    else {
+        MessageBox(nullptr, L"Failed to map VPBuffer.", L"Error", MB_OK);
+        return;
+    }
 
-    
+    // Отрисовка куба
+    if (g_pTextureView) {
+        UINT stride = sizeof(TextureVertex);
+        UINT offset = 0;
+        g_pImmediateContext->IASetVertexBuffers(0, 1, &g_pVertexBuffer, &stride, &offset);
+        g_pImmediateContext->IASetIndexBuffer(g_pIndexBuffer, DXGI_FORMAT_R16_UINT, 0);
+        g_pImmediateContext->IASetInputLayout(g_pVertexLayout);
 
-    VPBufferSkyBox vpBufferSkyBox;
-    vpBufferSkyBox.vp = vpBuffer.vp;
-    vpBufferSkyBox.cameraPos = g_CameraPosition;
+        g_pImmediateContext->VSSetShader(g_pVertexShader, nullptr, 0);
+        g_pImmediateContext->PSSetShader(g_pPixelShader, nullptr, 0);
 
-    GeomBufferSkyBox geomBufferSkyBox;
-    geomBufferSkyBox.model = DirectX::XMMatrixIdentity();
-    geomBufferSkyBox.size = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+        g_pImmediateContext->PSSetShaderResources(0, 1, &g_pTextureView);
+        g_pImmediateContext->PSSetSamplers(0, 1, &g_pSamplerState);
 
-    g_pImmediateContext->UpdateSubresource(g_pGeomBufferSkyBox, 0, nullptr, &geomBufferSkyBox, 0, 0);
-    g_pImmediateContext->UpdateSubresource(g_pVPBufferSkyBox, 0, nullptr, &vpBufferSkyBox, 0, 0);
+        g_pImmediateContext->VSSetConstantBuffers(0, 1, &g_pGeomBuffer);
+        g_pImmediateContext->VSSetConstantBuffers(1, 1, &g_pVPBuffer);
 
-    UINT stride = 12;
-    UINT offset = 0;
+        g_pImmediateContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        g_pImmediateContext->DrawIndexed(36, 0, 0);
+    }
+    else {
+        OutputDebugStringA("Cube texture is not loaded.\n");
+    }
 
-    // Render Skybox
-    g_pImmediateContext->VSSetShader(g_pSkyboxVertexShader, nullptr, 0);
-    g_pImmediateContext->PSSetShader(g_pSkyboxPixelShader, nullptr, 0);
-    g_pImmediateContext->PSSetShaderResources(0, 1, &g_pCubemapView);
-    g_pImmediateContext->PSSetSamplers(0, 1, &g_pSamplerState);
-    g_pImmediateContext->IASetInputLayout(g_pSkyboxVertexLayout);
-
-    // Set skybox geometry and draw
-    g_pImmediateContext->IASetVertexBuffers(0, 1, &g_pSkyboxVertexBuffer, &stride, &offset);
-    g_pImmediateContext->IASetIndexBuffer(g_pSkyboxIndexBuffer, DXGI_FORMAT_R16_UINT, 0);
-
-    g_pImmediateContext->VSSetConstantBuffers(0, 1, &g_pGeomBufferSkyBox);
-    g_pImmediateContext->VSSetConstantBuffers(1, 1, &g_pVPBufferSkyBox);
-
-    g_pImmediateContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-    g_pImmediateContext->DrawIndexed(36, 0, 0);
-   // g_pImmediateContext->Draw(36,0);
-
-
-    //Cube
-    stride = sizeof(TextureVertex);
-    offset = 0;
-    g_pImmediateContext->IASetVertexBuffers(0, 1, &g_pVertexBuffer, &stride, &offset);
-    g_pImmediateContext->IASetIndexBuffer(g_pIndexBuffer, DXGI_FORMAT_R16_UINT, 0);
-    g_pImmediateContext->IASetInputLayout(g_pVertexLayout);
-
-    g_pImmediateContext->VSSetShader(g_pVertexShader, nullptr, 0);
-    g_pImmediateContext->PSSetShader(g_pPixelShader, nullptr, 0);
-
-    // Привязка текстуры и семплера
-    g_pImmediateContext->PSSetShaderResources(0, 1, &g_pTextureView);
-    g_pImmediateContext->PSSetSamplers(0, 1, &g_pSamplerState);
-
-    g_pImmediateContext->VSSetConstantBuffers(0, 1, &g_pGeomBuffer);
-    g_pImmediateContext->VSSetConstantBuffers(1, 1, &g_pVPBuffer);
-
-    g_pImmediateContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-    g_pImmediateContext->DrawIndexed(36, 0, 0);
-
-
+    // Отображение результата
     g_pSwapChain->Present(0, 0);
 }
 
