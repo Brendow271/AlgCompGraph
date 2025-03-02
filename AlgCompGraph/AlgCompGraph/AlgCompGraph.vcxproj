@@ -144,7 +144,11 @@
     </PreLinkEvent>
     <PostBuildEvent>
       <Command>xcopy "$(ProjectDir)VertexShader.hlsl" "$(TargetDir)" /E /I /Y 
-xcopy "$(ProjectDir)PixelShader.hlsl" "$(TargetDir)" /E /I /Y </Command>
+xcopy "$(ProjectDir)PixelShader.hlsl" "$(TargetDir)" /E /I /Y 
+xcopy "$(ProjectDir)SpherePixelShader.hlsl" "$(TargetDir)" /E /I /Y
+xcopy "$(ProjectDir)SphereVertexShader.hlsl" "$(TargetDir)" /E /I /Y 
+xcopy "$(ProjectDir)Puppy.dds" "$(TargetDir)" /E /I /Y 
+xcopy "$(ProjectDir)СubeMap.dds" "$(TargetDir)" /E /I /Y </Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
