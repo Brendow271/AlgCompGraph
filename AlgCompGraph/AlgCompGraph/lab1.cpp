@@ -809,8 +809,12 @@ void CleanupDevice()
     if (g_pSwapChain) g_pSwapChain->Release();
     if (g_pImmediateContext) g_pImmediateContext->Release();
     if (g_pd3dDevice) g_pd3dDevice->Release();
+    if (g_pGeomBufferSkyBox) g_pGeomBufferSkyBox->Release();
+    if (g_pVPBufferSkyBox) g_pVPBufferSkyBox->Release();
+
     if (g_pTextureView) g_pTextureView->Release();
     if (g_pSamplerState) g_pSamplerState->Release();
+
     if (g_pCubemapView) g_pCubemapView->Release();
     if (g_pSkyboxVertexShader) g_pSkyboxVertexShader->Release();
     if (g_pSkyboxPixelShader) g_pSkyboxPixelShader->Release();
