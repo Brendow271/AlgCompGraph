@@ -38,9 +38,10 @@ ID3D11Buffer* g_pGeomBuffer = nullptr;
 ID3D11Buffer* g_pVPBuffer = nullptr;
 ID3D11Buffer* g_pGeomBufferSkyBox = nullptr;
 ID3D11Buffer* g_pVPBufferSkyBox = nullptr;
-
 ID3D11ShaderResourceView* g_pTextureView = nullptr;
 ID3D11SamplerState* g_pSamplerState = nullptr;
+
+ID3D11Buffer* g_pGeomBuffer2 = nullptr;
 
 // Skybox variables
 ID3D11ShaderResourceView* g_pCubemapView = nullptr;
@@ -48,6 +49,13 @@ ID3D11VertexShader* g_pSkyboxVertexShader = nullptr;
 ID3D11PixelShader* g_pSkyboxPixelShader = nullptr;
 ID3D11Buffer* g_pSkyboxVertexBuffer = nullptr;
 ID3D11Buffer* g_pSkyboxIndexBuffer = nullptr;
+
+ID3D11Texture2D* g_pDepthStencilTexture = nullptr; // Текстура глубины
+ID3D11DepthStencilView* g_pDepthStencilView = nullptr; // Depth Stencil View
+ID3D11DepthStencilState* g_pDepthStencilState = nullptr;
+
+
+
 
 DirectX::XMFLOAT4 g_ClearColor = { 0.2f, 0.2f, 0.4f, 1.0f };
 DirectX::XMFLOAT3 g_CameraPosition = { 0.0f, 0.0f, -5.0f };
@@ -148,7 +156,7 @@ static const WORD Indices[] = {
     20, 22, 21, 20, 23, 22
 };
 
-SkyboxVertex skyboxVertices[] = {         
+SkyboxVertex skyboxVertices[] = {
     {-1.0f,  1.0f, -1.0f},
     {-1.0f, -1.0f, -1.0f},
     { 1.0f, -1.0f, -1.0f},
@@ -218,14 +226,14 @@ int APIENTRY WinMain(
         nullptr,
         nullptr,
         nullptr,
-        L"Laboratory work 4",
+        L"Laboratory work 5",
         nullptr
     };
     RegisterClassEx(&wc);
 
     HWND hWnd = CreateWindow(
         wc.lpszClassName,
-        L"Laboratory work 4",
+        L"Laboratory work 5",
         WS_OVERLAPPEDWINDOW,
         100,
         100,
@@ -259,13 +267,13 @@ int APIENTRY WinMain(
     return (int)msg.wParam;
 }
 
-LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
-    switch (message) {
+LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
+{
+    switch (message)
+    {
     case WM_MOUSEMOVE:
         if (g_IsMouseDown) {
-
             POINT currentMousePos = { LOWORD(lParam), HIWORD(lParam) };
-
             int deltaX = currentMousePos.x - g_LastMousePos.x;
             int deltaY = currentMousePos.y - g_LastMousePos.y;
 
@@ -287,6 +295,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
     case WM_LBUTTONUP:
         g_IsMouseDown = false;
         break;
+
     case WM_KEYDOWN:
         switch (wParam) {
         case 'W':
@@ -316,6 +325,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
             break;
         }
         break;
+
     case WM_SIZE:
         if (g_pd3dDevice != nullptr && g_pSwapChain != nullptr) {
             if (g_pRenderTargetView) {
@@ -323,6 +333,20 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
                 g_pRenderTargetView->Release();
                 g_pRenderTargetView = nullptr;
             }
+            if (g_pDepthStencilView) {
+                g_pDepthStencilView->Release();
+                g_pDepthStencilView = nullptr;
+            }
+            if (g_pDepthStencilTexture) {
+                g_pDepthStencilTexture->Release();
+                g_pDepthStencilTexture = nullptr;
+            }
+            if (g_pDepthStencilState)
+            {
+                g_pDepthStencilState->Release();
+                g_pDepthStencilState = nullptr;
+            }
+
             g_pSwapChain->ResizeBuffers(0, LOWORD(lParam), HIWORD(lParam), DXGI_FORMAT_UNKNOWN, 0);
 
             ID3D11Texture2D* pBackBuffer = nullptr;
@@ -340,9 +364,33 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
                 break;
             }
 
-            g_pImmediateContext->OMSetRenderTargets(1, &g_pRenderTargetView, nullptr);
-            RECT rc;
-            GetClientRect(hWnd, &rc);
+            // Создание новой текстуры глубины и Depth Stencil View`
+            D3D11_TEXTURE2D_DESC descDepth = {};
+            descDepth.Width = LOWORD(lParam);
+            descDepth.Height = HIWORD(lParam);
+            descDepth.MipLevels = 1;
+            descDepth.ArraySize = 1;
+            descDepth.Format = DXGI_FORMAT_D32_FLOAT;
+            descDepth.SampleDesc.Count = 1;
+            descDepth.SampleDesc.Quality = 0;
+            descDepth.Usage = D3D11_USAGE_DEFAULT;
+            descDepth.BindFlags = D3D11_BIND_DEPTH_STENCIL;
+            descDepth.CPUAccessFlags = 0;
+            descDepth.MiscFlags = 0;
+
+            hr = g_pd3dDevice->CreateTexture2D(&descDepth, nullptr, &g_pDepthStencilTexture);
+            if (FAILED(hr)) {
+                MessageBox(hWnd, L"Failed to create depth texture.", L"Error", MB_OK);
+                break;
+            }
+
+            hr = g_pd3dDevice->CreateDepthStencilView(g_pDepthStencilTexture, nullptr, &g_pDepthStencilView);
+            if (FAILED(hr)) {
+                MessageBox(hWnd, L"Failed to create depth stencil view.", L"Error", MB_OK);
+                break;
+            }
+
+            // Обновляем вьюпорт
             D3D11_VIEWPORT vp = {};
             vp.Width = static_cast<FLOAT>(rc.right - rc.left);
             vp.Height = static_cast<FLOAT>(rc.bottom - rc.top);
@@ -351,9 +399,11 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
             g_pImmediateContext->RSSetViewports(1, &vp);
         }
         break;
+
     case WM_DESTROY:
         PostQuitMessage(0);
         break;
+
     default:
         return DefWindowProc(hWnd, message, wParam, lParam);
     }
@@ -426,7 +476,47 @@ HRESULT InitD3D(HWND hWnd)
         return hr;
     }
 
-    g_pImmediateContext->OMSetRenderTargets(1, &g_pRenderTargetView, nullptr);
+    // Создание текстуры глубины
+    D3D11_TEXTURE2D_DESC descDepth = {};
+    descDepth.Width = 800;
+    descDepth.Height = 600;
+    descDepth.MipLevels = 1;
+    descDepth.ArraySize = 1;
+    descDepth.Format = DXGI_FORMAT_D32_FLOAT; // Формат буфера глубины
+    descDepth.SampleDesc.Count = 1;
+    descDepth.SampleDesc.Quality = 0;
+    descDepth.Usage = D3D11_USAGE_DEFAULT;
+    descDepth.BindFlags = D3D11_BIND_DEPTH_STENCIL;
+    descDepth.CPUAccessFlags = 0;
+    descDepth.MiscFlags = 0;
+
+    hr = g_pd3dDevice->CreateTexture2D(&descDepth, nullptr, &g_pDepthStencilTexture);
+    if (FAILED(hr)) {
+        MessageBox(hWnd, L"Failed to create depth texture.", L"Error", MB_OK);
+        return hr;
+    }
+
+    hr = g_pd3dDevice->CreateDepthStencilView(g_pDepthStencilTexture, nullptr, &g_pDepthStencilView);
+    if (FAILED(hr)) {
+        MessageBox(hWnd, L"Failed to create depth stencil view.", L"Error", MB_OK);
+        return hr;
+    }
+
+    D3D11_DEPTH_STENCIL_DESC depthStencilDesc = {};
+    depthStencilDesc.DepthEnable = TRUE; // Включить тест глубины
+    depthStencilDesc.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL; // Разрешить запись в буфер глубины
+    depthStencilDesc.DepthFunc = D3D11_COMPARISON_LESS_EQUAL; // Стандартное сравнение для глубины
+    depthStencilDesc.StencilEnable = FALSE;
+
+    ID3D11DepthStencilState* g_pDepthStencilState = nullptr;
+    hr = g_pd3dDevice->CreateDepthStencilState(&depthStencilDesc, &g_pDepthStencilState);
+    if (FAILED(hr)) {
+        MessageBox(hWnd, L"Failed to create depth stencil state.", L"Error", MB_OK);
+        return hr;
+    }
+
+    //// Установите Depth Stencil State перед отрисовкой
+    //g_pImmediateContext->OMSetDepthStencilState(g_pDepthStencilState, 0);
 
     D3D11_VIEWPORT vp;
     vp.Width = 800;
@@ -500,6 +590,19 @@ HRESULT InitGraphics()
     hr = g_pd3dDevice->CreateBuffer(&cbDesc, nullptr, &g_pGeomBuffer);
     if (FAILED(hr)) {
         MessageBox(nullptr, L"Failed to create GeomBuffer.", L"Error", MB_OK);
+        return hr;
+    }
+
+    // Создание геометрического буфера для второго куба
+    D3D11_BUFFER_DESC cbDesc2 = {};
+    cbDesc2.Usage = D3D11_USAGE_DEFAULT;
+    cbDesc2.ByteWidth = sizeof(GeomBuffer);
+    cbDesc2.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+    cbDesc2.CPUAccessFlags = 0;
+
+    hr = g_pd3dDevice->CreateBuffer(&cbDesc2, nullptr, &g_pGeomBuffer2);
+    if (FAILED(hr)) {
+        MessageBox(nullptr, L"Failed to create GeomBuffer2.", L"Error", MB_OK);
         return hr;
     }
 
@@ -683,9 +786,13 @@ void Render() {
         g_RotationAngle -= DirectX::XM_2PI;
     }
 
-    g_pImmediateContext->OMSetRenderTargets(1, &g_pRenderTargetView, nullptr);
+    g_pImmediateContext->OMSetRenderTargets(1, &g_pRenderTargetView, g_pDepthStencilView);
+    
     g_pImmediateContext->ClearRenderTargetView(g_pRenderTargetView, reinterpret_cast<const float*>(&g_ClearColor));
+    g_pImmediateContext->ClearDepthStencilView(g_pDepthStencilView, D3D11_CLEAR_DEPTH, 1.0f, 0);
 
+    //g_pImmediateContext->OMSetRenderTargets(1, &g_pRenderTargetView, nullptr);
+    // 
     // Вычисляем направление камеры на основе углов Yaw и Pitch
     DirectX::XMVECTOR forward = DirectX::XMVectorSet(
         cosf(g_Pitch) * sinf(g_Yaw),
@@ -710,7 +817,7 @@ void Render() {
 
     GeomBufferSkyBox geomBufferSkyBox;
     geomBufferSkyBox.model = DirectX::XMMatrixIdentity();
-    geomBufferSkyBox.size = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+    geomBufferSkyBox.size = DirectX::XMFLOAT4(10.0f, 1.0f, 1.0f, 1.0f);
 
     g_pImmediateContext->UpdateSubresource(g_pGeomBufferSkyBox, 0, nullptr, &geomBufferSkyBox, 0, 0);
 
@@ -748,6 +855,8 @@ void Render() {
         OutputDebugStringA("Skybox texture is not loaded.\n");
     }
 
+    g_pImmediateContext->OMSetDepthStencilState(g_pDepthStencilState, 0);
+
     // Обновление матриц для основного объекта (куба)
     GeomBuffer geomBuffer;
     VPBuffer vpBuffer;
@@ -767,28 +876,69 @@ void Render() {
         return;
     }
 
-    // Отрисовка куба
+    // Отрисовка первого куба
     if (g_pTextureView) {
         UINT stride = sizeof(TextureVertex);
         UINT offset = 0;
+
+        // Устанавливаем буфер вершин и индексов
         g_pImmediateContext->IASetVertexBuffers(0, 1, &g_pVertexBuffer, &stride, &offset);
         g_pImmediateContext->IASetIndexBuffer(g_pIndexBuffer, DXGI_FORMAT_R16_UINT, 0);
         g_pImmediateContext->IASetInputLayout(g_pVertexLayout);
 
+        // Устанавливаем шейдеры
         g_pImmediateContext->VSSetShader(g_pVertexShader, nullptr, 0);
         g_pImmediateContext->PSSetShader(g_pPixelShader, nullptr, 0);
 
+        // Устанавливаем текстуру и сэмплер
         g_pImmediateContext->PSSetShaderResources(0, 1, &g_pTextureView);
         g_pImmediateContext->PSSetSamplers(0, 1, &g_pSamplerState);
 
-        g_pImmediateContext->VSSetConstantBuffers(0, 1, &g_pGeomBuffer);
+        // Обновляем матрицу модели для первого куба (вращение и/или сдвиг)
+        GeomBuffer geomBuffer1;
+        geomBuffer1.model = DirectX::XMMatrixRotationY(g_RotationAngle); // Вращение первого куба
+        g_pImmediateContext->UpdateSubresource(g_pGeomBuffer, 0, nullptr, &geomBuffer1, 0, 0);
+
+        // Устанавливаем константные буферы для первого куба
+        g_pImmediateContext->VSSetConstantBuffers(0, 1, &g_pGeomBuffer); // Используем g_pGeomBuffer
         g_pImmediateContext->VSSetConstantBuffers(1, 1, &g_pVPBuffer);
 
+        // Отрисовываем первый куб
         g_pImmediateContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
         g_pImmediateContext->DrawIndexed(36, 0, 0);
     }
-    else {
-        OutputDebugStringA("Cube texture is not loaded.\n");
+
+
+    // Отрисовка второго куба
+    if (g_pTextureView) {
+        UINT stride = sizeof(TextureVertex);
+        UINT offset = 0;
+
+        // Устанавливаем буфер вершин и индексов (те же, что и для первого куба)
+        g_pImmediateContext->IASetVertexBuffers(0, 1, &g_pVertexBuffer, &stride, &offset);
+        g_pImmediateContext->IASetIndexBuffer(g_pIndexBuffer, DXGI_FORMAT_R16_UINT, 0);
+        g_pImmediateContext->IASetInputLayout(g_pVertexLayout);
+
+        // Устанавливаем шейдеры
+        g_pImmediateContext->VSSetShader(g_pVertexShader, nullptr, 0);
+        g_pImmediateContext->PSSetShader(g_pPixelShader, nullptr, 0);
+
+        // Устанавливаем текстуру и сэмплер
+        g_pImmediateContext->PSSetShaderResources(0, 1, &g_pTextureView);
+        g_pImmediateContext->PSSetSamplers(0, 1, &g_pSamplerState);
+
+        // Обновляем матрицу модели для второго куба (сдвигаем его в сторону)
+        GeomBuffer geomBuffer2;
+        geomBuffer2.model = DirectX::XMMatrixTranslation(2.0f, 0.0f, 0.0f); // Сдвигаем второй куб на 2 единицы по оси X
+        g_pImmediateContext->UpdateSubresource(g_pGeomBuffer2, 0, nullptr, &geomBuffer2, 0, 0);
+
+        // Устанавливаем константные буферы для второго куба
+        g_pImmediateContext->VSSetConstantBuffers(0, 1, &g_pGeomBuffer2); // Используем g_pGeomBuffer2
+        g_pImmediateContext->VSSetConstantBuffers(1, 1, &g_pVPBuffer);
+
+        // Отрисовываем второй куб
+        g_pImmediateContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        g_pImmediateContext->DrawIndexed(36, 0, 0);
     }
 
     g_pSwapChain->Present(0, 0);
@@ -797,6 +947,7 @@ void Render() {
 void CleanupDevice()
 {
     if (g_pGeomBuffer) g_pGeomBuffer->Release();
+    if (g_pGeomBuffer2) g_pGeomBuffer2->Release();
     if (g_pVPBuffer) g_pVPBuffer->Release();
     if (g_pIndexBuffer) g_pIndexBuffer->Release();
     if (g_pVertexLayout) g_pVertexLayout->Release();
@@ -811,9 +962,12 @@ void CleanupDevice()
     if (g_pd3dDevice) g_pd3dDevice->Release();
     if (g_pGeomBufferSkyBox) g_pGeomBufferSkyBox->Release();
     if (g_pVPBufferSkyBox) g_pVPBufferSkyBox->Release();
-
     if (g_pTextureView) g_pTextureView->Release();
     if (g_pSamplerState) g_pSamplerState->Release();
+
+    if (g_pDepthStencilView) g_pDepthStencilView->Release();
+    if (g_pDepthStencilTexture) g_pDepthStencilTexture->Release();
+    if (g_pDepthStencilState) g_pDepthStencilState->Release();
 
     if (g_pCubemapView) g_pCubemapView->Release();
     if (g_pSkyboxVertexShader) g_pSkyboxVertexShader->Release();
