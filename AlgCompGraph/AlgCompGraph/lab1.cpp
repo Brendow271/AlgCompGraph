@@ -549,7 +549,6 @@ HRESULT InitD3D(HWND hWnd)
     depthStencilDesc.DepthFunc = D3D11_COMPARISON_LESS_EQUAL;
     depthStencilDesc.StencilEnable = FALSE;
 
-    ID3D11DepthStencilState* g_pDepthStencilState = nullptr;
     hr = g_pd3dDevice->CreateDepthStencilState(&depthStencilDesc, &g_pDepthStencilState);
     if (FAILED(hr)) {
         MessageBox(hWnd, L"Failed to create depth stencil state.", L"Error", MB_OK);
