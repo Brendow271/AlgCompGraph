@@ -147,6 +147,8 @@
 xcopy "$(ProjectDir)PixelShader.hlsl" "$(TargetDir)" /E /I /Y 
 xcopy "$(ProjectDir)SpherePixelShader.hlsl" "$(TargetDir)" /E /I /Y
 xcopy "$(ProjectDir)SphereVertexShader.hlsl" "$(TargetDir)" /E /I /Y 
+xcopy "$(ProjectDir)TransparentVertexShader.hlsl" "$(TargetDir)" /E /I /Y
+xcopy "$(ProjectDir)TransparentPixelShader.hlsl" "$(TargetDir)" /E /I /Y 
 xcopy "$(ProjectDir)Puppy.dds" "$(TargetDir)" /E /I /Y 
 xcopy "$(ProjectDir)СubeMap.dds" "$(TargetDir)" /E /I /Y </Command>
     </PostBuildEvent>
