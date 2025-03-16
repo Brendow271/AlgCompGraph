@@ -8,6 +8,7 @@
 #include "DDSTextureLoader11.h"
 #include <string>
 #include <vector>
+#include <algorithm>
 
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "dxgi.lib")
@@ -40,7 +41,6 @@ ID3D11Buffer* g_pGeomBufferSkyBox = nullptr;
 ID3D11Buffer* g_pVPBufferSkyBox = nullptr;
 ID3D11ShaderResourceView* g_pTextureView = nullptr;
 ID3D11SamplerState* g_pSamplerState = nullptr;
-
 ID3D11Buffer* g_pGeomBuffer2 = nullptr;
 
 // Skybox variables
@@ -50,12 +50,19 @@ ID3D11PixelShader* g_pSkyboxPixelShader = nullptr;
 ID3D11Buffer* g_pSkyboxVertexBuffer = nullptr;
 ID3D11Buffer* g_pSkyboxIndexBuffer = nullptr;
 
-ID3D11Texture2D* g_pDepthStencilTexture = nullptr; // Текстура глубины
-ID3D11DepthStencilView* g_pDepthStencilView = nullptr; // Depth Stencil View
+ID3D11Texture2D* g_pDepthStencilTexture = nullptr;
+ID3D11DepthStencilView* g_pDepthStencilView = nullptr;
 ID3D11DepthStencilState* g_pDepthStencilState = nullptr;
 
-
-
+ID3D11BlendState* g_pTransBlendState = nullptr;
+ID3D11DepthStencilState* g_pNoDepthWriteState = nullptr;
+ID3D11InputLayout* g_pTransparentInputLayout = nullptr;
+ID3D11PixelShader* g_pTransparentPixelShader = nullptr;
+ID3D11VertexShader* g_pTransparentVertexShader = nullptr;
+ID3D11Buffer* g_pRectangleVertexBuffer = nullptr;
+ID3D11Buffer* g_pRectangleIndexBuffer = nullptr;
+ID3D11Buffer* g_pRectGeomBuffer = nullptr;
+ID3D11RasterizerState* g_pRasterizerState = nullptr;
 
 DirectX::XMFLOAT4 g_ClearColor = { 0.2f, 0.2f, 0.4f, 1.0f };
 DirectX::XMFLOAT3 g_CameraPosition = { 0.0f, 0.0f, -5.0f };
@@ -200,6 +207,44 @@ SkyboxVertex skyboxVertices[] = {
     { 1.0f, -1.0f,  1.0f}
 };
 
+struct Vertex {
+    DirectX::XMFLOAT3 position;
+};
+
+struct RectGeomBuffer {
+    DirectX::XMMATRIX model;
+    DirectX::XMFLOAT4 color;
+};
+
+Vertex g_RectangleVertices[] = {
+    { DirectX::XMFLOAT3(0.0f, -0.5f, 0.5f) },
+    { DirectX::XMFLOAT3(0.f, 0.5f, 0.5f) },  
+    { DirectX::XMFLOAT3(0.0f, 0.5f, -0.5f) },   
+    { DirectX::XMFLOAT3(0.0f, -0.5f, -0.5f) }   
+};
+
+WORD g_RectangleIndices[] = {
+    0, 1, 2,
+    0, 2, 3 
+};
+
+struct RectangleInfo {
+    DirectX::XMMATRIX modelMatrix;
+    DirectX::XMFLOAT4 color;
+    float distanceFromCamera;
+};
+
+// Матрицы для прямоугольников
+DirectX::XMMATRIX modelMatrices[2] = {
+    DirectX::XMMatrixTranslation(1.0f, 0.0f, 0.0f),
+    DirectX::XMMatrixTranslation(1.5f, 0.0f, 0.0f)
+};
+
+DirectX::XMFLOAT4 colors[2] = {
+    DirectX::XMFLOAT4(1.0f, 0.0f, 0.0f, 0.5f),
+    DirectX::XMFLOAT4(0.0f, 0.0f, 1.0f, 0.5f)
+};
+
 LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
 HRESULT InitD3D(HWND hWnd);
 void CleanupDevice();
@@ -209,7 +254,6 @@ HRESULT InitGraphics();
 ID3D11ShaderResourceView* LoadTexture(const std::wstring& filePath);
 ID3D11ShaderResourceView* LoadCubemap(const std::wstring& filePath);
 ID3D11SamplerState* CreateSampler();
-
 
 int APIENTRY WinMain(
     _In_ HINSTANCE hInstance,
@@ -364,7 +408,6 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 break;
             }
 
-            // Создание новой текстуры глубины и Depth Stencil View`
             D3D11_TEXTURE2D_DESC descDepth = {};
             descDepth.Width = LOWORD(lParam);
             descDepth.Height = HIWORD(lParam);
@@ -390,10 +433,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 break;
             }
 
-            // Обновляем вьюпорт
             D3D11_VIEWPORT vp = {};
-            vp.Width = static_cast<FLOAT>(rc.right - rc.left);
-            vp.Height = static_cast<FLOAT>(rc.bottom - rc.top);
+            vp.Width = static_cast<FLOAT>(LOWORD(lParam));
+            vp.Height = static_cast<FLOAT>(HIWORD(lParam));
             vp.MinDepth = 0.0f;
             vp.MaxDepth = 1.0f;
             g_pImmediateContext->RSSetViewports(1, &vp);
@@ -476,13 +518,12 @@ HRESULT InitD3D(HWND hWnd)
         return hr;
     }
 
-    // Создание текстуры глубины
     D3D11_TEXTURE2D_DESC descDepth = {};
     descDepth.Width = 800;
     descDepth.Height = 600;
     descDepth.MipLevels = 1;
     descDepth.ArraySize = 1;
-    descDepth.Format = DXGI_FORMAT_D32_FLOAT; // Формат буфера глубины
+    descDepth.Format = DXGI_FORMAT_D32_FLOAT;
     descDepth.SampleDesc.Count = 1;
     descDepth.SampleDesc.Quality = 0;
     descDepth.Usage = D3D11_USAGE_DEFAULT;
@@ -503,9 +544,9 @@ HRESULT InitD3D(HWND hWnd)
     }
 
     D3D11_DEPTH_STENCIL_DESC depthStencilDesc = {};
-    depthStencilDesc.DepthEnable = TRUE; // Включить тест глубины
-    depthStencilDesc.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL; // Разрешить запись в буфер глубины
-    depthStencilDesc.DepthFunc = D3D11_COMPARISON_LESS_EQUAL; // Стандартное сравнение для глубины
+    depthStencilDesc.DepthEnable = TRUE;
+    depthStencilDesc.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL;
+    depthStencilDesc.DepthFunc = D3D11_COMPARISON_LESS_EQUAL;
     depthStencilDesc.StencilEnable = FALSE;
 
     ID3D11DepthStencilState* g_pDepthStencilState = nullptr;
@@ -514,9 +555,6 @@ HRESULT InitD3D(HWND hWnd)
         MessageBox(hWnd, L"Failed to create depth stencil state.", L"Error", MB_OK);
         return hr;
     }
-
-    //// Установите Depth Stencil State перед отрисовкой
-    //g_pImmediateContext->OMSetDepthStencilState(g_pDepthStencilState, 0);
 
     D3D11_VIEWPORT vp;
     vp.Width = 800;
@@ -581,6 +619,32 @@ HRESULT InitGraphics()
         return hr;
     }
 
+    D3D11_BUFFER_DESC rectVbDesc = {};
+    rectVbDesc.Usage = D3D11_USAGE_DEFAULT;
+    rectVbDesc.ByteWidth = sizeof(g_RectangleVertices);
+    rectVbDesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+    D3D11_SUBRESOURCE_DATA rectVbData = {};
+    rectVbData.pSysMem = g_RectangleVertices;
+
+    hr = g_pd3dDevice->CreateBuffer(&rectVbDesc, &rectVbData, &g_pRectangleVertexBuffer);
+    if (FAILED(hr)) {
+        MessageBox(nullptr, L"Failed to create rectangle vertex buffer.", L"Error", MB_OK);
+        return hr;
+    }
+
+    D3D11_BUFFER_DESC rectIbDesc = {};
+    rectIbDesc.Usage = D3D11_USAGE_DEFAULT;
+    rectIbDesc.ByteWidth = sizeof(g_RectangleIndices);
+    rectIbDesc.BindFlags = D3D11_BIND_INDEX_BUFFER;
+    D3D11_SUBRESOURCE_DATA rectIbData = {};
+    rectIbData.pSysMem = g_RectangleIndices;
+
+    hr = g_pd3dDevice->CreateBuffer(&rectIbDesc, &rectIbData, &g_pRectangleIndexBuffer);
+    if (FAILED(hr)) {
+        MessageBox(nullptr, L"Failed to create rectangle index buffer.", L"Error", MB_OK);
+        return hr;
+    }
+
     D3D11_BUFFER_DESC cbDesc = {};
     cbDesc.Usage = D3D11_USAGE_DEFAULT;
     cbDesc.ByteWidth = sizeof(GeomBuffer);
@@ -593,7 +657,6 @@ HRESULT InitGraphics()
         return hr;
     }
 
-    // Создание геометрического буфера для второго куба
     D3D11_BUFFER_DESC cbDesc2 = {};
     cbDesc2.Usage = D3D11_USAGE_DEFAULT;
     cbDesc2.ByteWidth = sizeof(GeomBuffer);
@@ -636,14 +699,74 @@ HRESULT InitGraphics()
     if (FAILED(hr))
         return hr;
 
+    D3D11_BUFFER_DESC rectGeomBufferDesc = {};
+    rectGeomBufferDesc.ByteWidth = sizeof(RectGeomBuffer);
+    rectGeomBufferDesc.Usage = D3D11_USAGE_DEFAULT;
+    rectGeomBufferDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+    rectGeomBufferDesc.CPUAccessFlags = 0;
+
+    hr = g_pd3dDevice->CreateBuffer(&rectGeomBufferDesc, nullptr, &g_pRectGeomBuffer);
+    if (FAILED(hr)) {
+        MessageBox(nullptr, L"Failed to create RectGeomBuffer.", L"Error", MB_OK);
+        return hr;
+    }
+
+    // Создание blend state для прозрачности
+    D3D11_BLEND_DESC blendDesc = {};
+    blendDesc.AlphaToCoverageEnable = FALSE;
+    blendDesc.IndependentBlendEnable = FALSE;
+    blendDesc.RenderTarget[0].BlendEnable = TRUE;
+    blendDesc.RenderTarget[0].SrcBlend = D3D11_BLEND_SRC_ALPHA;
+    blendDesc.RenderTarget[0].DestBlend = D3D11_BLEND_INV_SRC_ALPHA;
+    blendDesc.RenderTarget[0].BlendOp = D3D11_BLEND_OP_ADD;
+    blendDesc.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_ONE;
+    blendDesc.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_ZERO;
+    blendDesc.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
+    blendDesc.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
+
+    hr = g_pd3dDevice->CreateBlendState(&blendDesc, &g_pTransBlendState);
+    if (FAILED(hr)) {
+        MessageBox(nullptr, L"Failed to create blend state.", L"Error", MB_OK);
+        return hr;
+    }
+
+    // Создание depth stencil state без записи в буфер глубины
+    D3D11_DEPTH_STENCIL_DESC depthStencilDesc = {};
+    depthStencilDesc.DepthEnable = TRUE;
+    depthStencilDesc.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;
+    depthStencilDesc.DepthFunc = D3D11_COMPARISON_LESS;
+    depthStencilDesc.StencilEnable = FALSE;
+
+    hr = g_pd3dDevice->CreateDepthStencilState(&depthStencilDesc, &g_pNoDepthWriteState);
+    if (FAILED(hr)) {
+        MessageBox(nullptr, L"Failed to create depth stencil state.", L"Error", MB_OK);
+        return hr;
+    }
+
+    D3D11_RASTERIZER_DESC desc = {};
+    desc.AntialiasedLineEnable = TRUE;
+    desc.FillMode = D3D11_FILL_SOLID;
+    desc.CullMode = D3D11_CULL_NONE;
+    desc.FrontCounterClockwise = FALSE;
+    desc.DepthBias = 0;
+    desc.SlopeScaledDepthBias = 0.0f;
+    desc.DepthBiasClamp = 0.0f;
+    desc.DepthClipEnable = TRUE;
+    desc.ScissorEnable = FALSE;
+    desc.MultisampleEnable = FALSE;
+
+    hr = g_pd3dDevice->CreateRasterizerState(&desc, &g_pRasterizerState);
+    if (FAILED(hr)) {
+        return hr;
+    }
+
     ID3DBlob* vsBlob = nullptr;
     ID3DBlob* psBlob = nullptr;
 
     UINT flags = 0;
-
 #ifdef _DEBUG
     flags |= D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION;
-#endif // _DEBUG
+#endif
 
     hr = D3DCompileFromFile(L"VertexShader.hlsl", nullptr, D3D_COMPILE_STANDARD_FILE_INCLUDE,
         "VSMain", "vs_4_0", flags, 0, &vsBlob, nullptr);
@@ -711,6 +834,36 @@ HRESULT InitGraphics()
 
     vsBlobSkyBox->Release();
     psBlobSkyBox->Release();
+
+    vsBlob = nullptr;
+    hr = D3DCompileFromFile(L"TransparentVertexShader.hlsl", nullptr, nullptr,
+        "VSMain", "vs_5_0", 0, 0, &vsBlob, nullptr);
+    if (FAILED(hr))
+        return hr;
+
+    psBlob = nullptr;
+    hr = D3DCompileFromFile(L"TransparentPixelShader.hlsl", nullptr, nullptr,
+        "PSMain", "ps_5_0", 0, 0, &psBlob, nullptr);
+    if (FAILED(hr))
+        return hr;
+
+    hr = g_pd3dDevice->CreateVertexShader(vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), nullptr, &g_pTransparentVertexShader);
+    if (FAILED(hr))
+        return hr;
+
+    hr = g_pd3dDevice->CreatePixelShader(psBlob->GetBufferPointer(), psBlob->GetBufferSize(), nullptr, &g_pTransparentPixelShader);
+    if (FAILED(hr))
+        return hr;
+
+    D3D11_INPUT_ELEMENT_DESC Rectlayout[] = {
+        { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+    };
+    hr = g_pd3dDevice->CreateInputLayout(Rectlayout, ARRAYSIZE(Rectlayout), vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), &g_pTransparentInputLayout);
+    if (FAILED(hr))
+        return hr;
+
+    vsBlob->Release();
+    psBlob->Release();
 
     return S_OK;
 }
@@ -786,14 +939,11 @@ void Render() {
         g_RotationAngle -= DirectX::XM_2PI;
     }
 
+    g_pImmediateContext->RSSetState(g_pRasterizerState);
     g_pImmediateContext->OMSetRenderTargets(1, &g_pRenderTargetView, g_pDepthStencilView);
-    
     g_pImmediateContext->ClearRenderTargetView(g_pRenderTargetView, reinterpret_cast<const float*>(&g_ClearColor));
     g_pImmediateContext->ClearDepthStencilView(g_pDepthStencilView, D3D11_CLEAR_DEPTH, 1.0f, 0);
 
-    //g_pImmediateContext->OMSetRenderTargets(1, &g_pRenderTargetView, nullptr);
-    // 
-    // Вычисляем направление камеры на основе углов Yaw и Pitch
     DirectX::XMVECTOR forward = DirectX::XMVectorSet(
         cosf(g_Pitch) * sinf(g_Yaw),
         sinf(g_Pitch),
@@ -801,7 +951,6 @@ void Render() {
         0.0f
     );
 
-    // Позиция камеры
     DirectX::XMVECTOR eye = DirectX::XMVectorSet(g_CameraPosition.x, g_CameraPosition.y, g_CameraPosition.z, 0.0f);
     DirectX::XMVECTOR at = DirectX::XMVectorAdd(eye, forward);
     DirectX::XMVECTOR up = DirectX::XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
@@ -831,7 +980,6 @@ void Render() {
         OutputDebugStringA("Failed to map VPBufferSkyBox.\n");
     }
 
-
     // Отрисовка skybox
     if (g_pCubemapView) {
         UINT stride = sizeof(SkyboxVertex);
@@ -855,9 +1003,9 @@ void Render() {
         OutputDebugStringA("Skybox texture is not loaded.\n");
     }
 
+    // Отрисовка кубов
     g_pImmediateContext->OMSetDepthStencilState(g_pDepthStencilState, 0);
 
-    // Обновление матриц для основного объекта (куба)
     GeomBuffer geomBuffer;
     VPBuffer vpBuffer;
 
@@ -881,65 +1029,107 @@ void Render() {
         UINT stride = sizeof(TextureVertex);
         UINT offset = 0;
 
-        // Устанавливаем буфер вершин и индексов
         g_pImmediateContext->IASetVertexBuffers(0, 1, &g_pVertexBuffer, &stride, &offset);
         g_pImmediateContext->IASetIndexBuffer(g_pIndexBuffer, DXGI_FORMAT_R16_UINT, 0);
         g_pImmediateContext->IASetInputLayout(g_pVertexLayout);
 
-        // Устанавливаем шейдеры
         g_pImmediateContext->VSSetShader(g_pVertexShader, nullptr, 0);
         g_pImmediateContext->PSSetShader(g_pPixelShader, nullptr, 0);
 
-        // Устанавливаем текстуру и сэмплер
         g_pImmediateContext->PSSetShaderResources(0, 1, &g_pTextureView);
         g_pImmediateContext->PSSetSamplers(0, 1, &g_pSamplerState);
 
-        // Обновляем матрицу модели для первого куба (вращение и/или сдвиг)
         GeomBuffer geomBuffer1;
-        geomBuffer1.model = DirectX::XMMatrixRotationY(g_RotationAngle); // Вращение первого куба
+        geomBuffer1.model = DirectX::XMMatrixRotationY(g_RotationAngle);
         g_pImmediateContext->UpdateSubresource(g_pGeomBuffer, 0, nullptr, &geomBuffer1, 0, 0);
 
-        // Устанавливаем константные буферы для первого куба
-        g_pImmediateContext->VSSetConstantBuffers(0, 1, &g_pGeomBuffer); // Используем g_pGeomBuffer
+        g_pImmediateContext->VSSetConstantBuffers(0, 1, &g_pGeomBuffer);
         g_pImmediateContext->VSSetConstantBuffers(1, 1, &g_pVPBuffer);
 
-        // Отрисовываем первый куб
         g_pImmediateContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
         g_pImmediateContext->DrawIndexed(36, 0, 0);
     }
-
 
     // Отрисовка второго куба
     if (g_pTextureView) {
         UINT stride = sizeof(TextureVertex);
         UINT offset = 0;
 
-        // Устанавливаем буфер вершин и индексов (те же, что и для первого куба)
         g_pImmediateContext->IASetVertexBuffers(0, 1, &g_pVertexBuffer, &stride, &offset);
         g_pImmediateContext->IASetIndexBuffer(g_pIndexBuffer, DXGI_FORMAT_R16_UINT, 0);
         g_pImmediateContext->IASetInputLayout(g_pVertexLayout);
 
-        // Устанавливаем шейдеры
         g_pImmediateContext->VSSetShader(g_pVertexShader, nullptr, 0);
         g_pImmediateContext->PSSetShader(g_pPixelShader, nullptr, 0);
 
-        // Устанавливаем текстуру и сэмплер
         g_pImmediateContext->PSSetShaderResources(0, 1, &g_pTextureView);
         g_pImmediateContext->PSSetSamplers(0, 1, &g_pSamplerState);
 
-        // Обновляем матрицу модели для второго куба (сдвигаем его в сторону)
         GeomBuffer geomBuffer2;
-        geomBuffer2.model = DirectX::XMMatrixTranslation(2.0f, 0.0f, 0.0f); // Сдвигаем второй куб на 2 единицы по оси X
+        geomBuffer2.model = DirectX::XMMatrixTranslation(2.5f, 0.0f, 0.0f);
         g_pImmediateContext->UpdateSubresource(g_pGeomBuffer2, 0, nullptr, &geomBuffer2, 0, 0);
 
-        // Устанавливаем константные буферы для второго куба
-        g_pImmediateContext->VSSetConstantBuffers(0, 1, &g_pGeomBuffer2); // Используем g_pGeomBuffer2
+        g_pImmediateContext->VSSetConstantBuffers(0, 1, &g_pGeomBuffer2);
         g_pImmediateContext->VSSetConstantBuffers(1, 1, &g_pVPBuffer);
 
-        // Отрисовываем второй куб
         g_pImmediateContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
         g_pImmediateContext->DrawIndexed(36, 0, 0);
     }
+
+    // Отрисовка прямоугольников с прозрачностью
+    g_pImmediateContext->OMSetBlendState(g_pTransBlendState, nullptr, 0xFFFFFFFF);
+    g_pImmediateContext->OMSetDepthStencilState(g_pNoDepthWriteState, 0);
+
+    if (g_pRectangleVertexBuffer && g_pRectangleIndexBuffer) {
+        UINT stride = sizeof(Vertex);
+        UINT offset = 0;
+
+        g_pImmediateContext->IASetVertexBuffers(0, 1, &g_pRectangleVertexBuffer, &stride, &offset);
+        g_pImmediateContext->IASetIndexBuffer(g_pRectangleIndexBuffer, DXGI_FORMAT_R16_UINT, 0);
+        g_pImmediateContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+        g_pImmediateContext->VSSetShader(g_pTransparentVertexShader, nullptr, 0);
+        g_pImmediateContext->PSSetShader(g_pTransparentPixelShader, nullptr, 0);
+        g_pImmediateContext->IASetInputLayout(g_pTransparentInputLayout);
+
+        RectangleInfo rectangles[2];
+        for (int i = 0; i < 2; ++i) {
+            DirectX::XMVECTOR rectPosition = DirectX::XMVector3Transform(
+                DirectX::XMVectorSet(0.0f, 0.0f, 0.0f, 1.0f),
+                modelMatrices[i]
+            );
+
+            DirectX::XMVECTOR cameraPosition = DirectX::XMVectorSet(
+                g_CameraPosition.x, g_CameraPosition.y, g_CameraPosition.z, 1.0f
+            );
+
+            DirectX::XMVECTOR distanceVector = DirectX::XMVectorSubtract(rectPosition, cameraPosition);
+            float distance = DirectX::XMVectorGetX(DirectX::XMVector3Length(distanceVector));
+
+            rectangles[i].modelMatrix = modelMatrices[i];
+            rectangles[i].color = colors[i];
+            rectangles[i].distanceFromCamera = distance;
+        }
+
+        std::sort(rectangles, rectangles + 2, [](const RectangleInfo& a, const RectangleInfo& b) {
+            return a.distanceFromCamera > b.distanceFromCamera;
+            });
+
+        for (int i = 0; i < 2; ++i) {
+            RectGeomBuffer rectGeomBuffer;
+            rectGeomBuffer.model = rectangles[i].modelMatrix;
+            rectGeomBuffer.color = rectangles[i].color;
+
+            g_pImmediateContext->UpdateSubresource(g_pRectGeomBuffer, 0, nullptr, &rectGeomBuffer, 0, 0);
+            g_pImmediateContext->VSSetConstantBuffers(0, 1, &g_pVPBuffer);
+            g_pImmediateContext->VSSetConstantBuffers(1, 1, &g_pRectGeomBuffer);
+
+            g_pImmediateContext->DrawIndexed(6, 0, 0);
+        }
+    }
+
+    g_pImmediateContext->OMSetBlendState(nullptr, nullptr, 0xFFFFFFFF);
+    g_pImmediateContext->OMSetDepthStencilState(nullptr, 0);
 
     g_pSwapChain->Present(0, 0);
 }
@@ -968,6 +1158,16 @@ void CleanupDevice()
     if (g_pDepthStencilView) g_pDepthStencilView->Release();
     if (g_pDepthStencilTexture) g_pDepthStencilTexture->Release();
     if (g_pDepthStencilState) g_pDepthStencilState->Release();
+
+    if (g_pTransBlendState) g_pTransBlendState->Release();
+    if (g_pNoDepthWriteState) g_pNoDepthWriteState->Release();
+    if (g_pTransparentInputLayout) g_pTransparentInputLayout->Release();
+    if (g_pTransparentPixelShader) g_pTransparentPixelShader->Release();
+    if (g_pTransparentVertexShader) g_pTransparentVertexShader->Release();
+    if (g_pRectangleVertexBuffer) g_pRectangleVertexBuffer->Release();
+    if (g_pRectangleIndexBuffer) g_pRectangleIndexBuffer->Release();
+    if (g_pRectGeomBuffer) g_pRectGeomBuffer->Release();
+    if (g_pRasterizerState) g_pRasterizerState->Release();
 
     if (g_pCubemapView) g_pCubemapView->Release();
     if (g_pSkyboxVertexShader) g_pSkyboxVertexShader->Release();
