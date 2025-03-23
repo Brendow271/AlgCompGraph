@@ -38,14 +38,13 @@ float4 PSMain(PS_INPUT input) : SV_Target
 
     float3 perturbedNormal = normalize(mul(normalSample, TBN));
     
-    float3 lightDir = lightPos - input.WorldPos;
-    float lightDirlength = length(lightDir);
-    float attenuation = clamp(1 / (lightDirlength * lightDirlength), 0, 1);
+    float3 lightDir = normalize(lightPos - input.WorldPos);
+    float lightDirLength = length(lightPos - input.WorldPos);
+    float attenuation = clamp(1 / (lightDirLength * lightDirLength), 0, 1);
     
-    lightDir = normalize(lightDir);
     float diff = saturate(dot(perturbedNormal, lightDir));
     float3 viewDir = normalize(cameraPosition - input.WorldPos);
-    float3 reflectDir = reflect(-lightDir, perturbedNormal);
+    float3 reflectDir = reflect(lightDir, perturbedNormal);
     float spec = pow(saturate(dot(viewDir, reflectDir)), 32);
 
     float3 ambientColor = ambient * diffuseColor.rgb;
