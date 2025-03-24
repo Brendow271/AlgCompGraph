@@ -44,7 +44,7 @@ float4 PSMain(PS_INPUT input) : SV_Target
     
     float diff = saturate(dot(perturbedNormal, lightDir));
     float3 viewDir = normalize(cameraPosition - input.WorldPos);
-    float3 reflectDir = reflect(lightDir, perturbedNormal);
+    float3 reflectDir = reflect(-lightDir, perturbedNormal);
     float spec = pow(saturate(dot(viewDir, reflectDir)), 32);
 
     float3 ambientColor = ambient * diffuseColor.rgb;

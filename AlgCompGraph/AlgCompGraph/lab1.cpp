@@ -135,41 +135,41 @@ struct SkyboxVertex {
 };
 
 static const TextureVertex Vertices[] = {
-    // Нижняя грань (Normal: 0, -1, 0)
+    // Нижняя грань
     { DirectX::XMFLOAT3(-0.5f, -0.5f,  0.5f), DirectX::XMFLOAT3(0.0f, -1.0f, 0.0f), 0.0f, 1.0f },
     { DirectX::XMFLOAT3(0.5f, -0.5f,  0.5f), DirectX::XMFLOAT3(0.0f, -1.0f, 0.0f), 1.0f, 1.0f },
     { DirectX::XMFLOAT3(0.5f, -0.5f, -0.5f), DirectX::XMFLOAT3(0.0f, -1.0f, 0.0f), 1.0f, 0.0f },
     { DirectX::XMFLOAT3(-0.5f, -0.5f, -0.5f), DirectX::XMFLOAT3(0.0f, -1.0f, 0.0f), 0.0f, 0.0f },
 
-    // Верхняя грань (Normal: 0, 1, 0)
+    // Верхняя грань
     { DirectX::XMFLOAT3(-0.5f,  0.5f, -0.5f), DirectX::XMFLOAT3(0.0f, 1.0f, 0.0f), 0.0f, 1.0f },
     { DirectX::XMFLOAT3(0.5f,  0.5f, -0.5f), DirectX::XMFLOAT3(0.0f, 1.0f, 0.0f), 1.0f, 1.0f },
     { DirectX::XMFLOAT3(0.5f,  0.5f,  0.5f), DirectX::XMFLOAT3(0.0f, 1.0f, 0.0f), 1.0f, 0.0f },
     { DirectX::XMFLOAT3(-0.5f,  0.5f,  0.5f), DirectX::XMFLOAT3(0.0f, 1.0f, 0.0f), 0.0f, 0.0f },
 
-    // Передняя грань (Normal: 0, 0, 1)
-    { DirectX::XMFLOAT3(0.5f, -0.5f,  -0.5f), DirectX::XMFLOAT3(0.0f, 0.0f, 1.0f), 0.0f, 1.0f },
-    { DirectX::XMFLOAT3(0.5f, -0.5f,  0.5f), DirectX::XMFLOAT3(0.0f, 0.0f, 1.0f), 1.0f, 1.0f },
-    { DirectX::XMFLOAT3(0.5f,  0.5f,  0.5f), DirectX::XMFLOAT3(0.0f, 0.0f, 1.0f), 1.0f, 0.0f },
-    { DirectX::XMFLOAT3(0.5f,  0.5f,  -0.5f), DirectX::XMFLOAT3(0.0f, 0.0f, 1.0f), 0.0f, 0.0f },
+    // Правая грань
+    { DirectX::XMFLOAT3(0.5f, -0.5f,  -0.5f), DirectX::XMFLOAT3(1.0f, 0.0f, 0.0f), 0.0f, 1.0f },
+    { DirectX::XMFLOAT3(0.5f, -0.5f,  0.5f), DirectX::XMFLOAT3(1.0f, 0.0f, 0.0f), 1.0f, 1.0f },
+    { DirectX::XMFLOAT3(0.5f,  0.5f,  0.5f), DirectX::XMFLOAT3(1.0f, 0.0f, 0.0f), 1.0f, 0.0f },
+    { DirectX::XMFLOAT3(0.5f,  0.5f,  -0.5f), DirectX::XMFLOAT3(1.0f, 0.0f, 0.0f), 0.0f, 0.0f },
 
-    // Задняя грань (Normal: 0, 0, -1)
-    { DirectX::XMFLOAT3(-0.5f, -0.5f, 0.5f), DirectX::XMFLOAT3(0.0f, 0.0f, -1.0f), 0.0f, 1.0f },
-    { DirectX::XMFLOAT3(-0.5f, -0.5f, -0.5f), DirectX::XMFLOAT3(0.0f, 0.0f, -1.0f), 1.0f, 1.0f },
-    { DirectX::XMFLOAT3(-0.5f,  0.5f, -0.5f), DirectX::XMFLOAT3(0.0f, 0.0f, -1.0f), 1.0f, 0.0f },
-    { DirectX::XMFLOAT3(-0.5f,  0.5f, 0.5f), DirectX::XMFLOAT3(0.0f, 0.0f, -1.0f), 0.0f, 0.0f },
+    // Левая грань
+    { DirectX::XMFLOAT3(-0.5f, -0.5f, 0.5f), DirectX::XMFLOAT3(-1.0f, 0.0f, 0.0f), 0.0f, 1.0f },
+    { DirectX::XMFLOAT3(-0.5f, -0.5f, -0.5f), DirectX::XMFLOAT3(-1.0f, 0.0f, 0.0f), 1.0f, 1.0f },
+    { DirectX::XMFLOAT3(-0.5f,  0.5f, -0.5f), DirectX::XMFLOAT3(-1.0f, 0.0f, 0.0f), 1.0f, 0.0f },
+    { DirectX::XMFLOAT3(-0.5f,  0.5f, 0.5f), DirectX::XMFLOAT3(-1.0f, 0.0f, 0.0f), 0.0f, 0.0f },
 
-    // Левая грань (Normal: -1, 0, 0)
-    { DirectX::XMFLOAT3(0.5f, -0.5f,  0.5f), DirectX::XMFLOAT3(-1.0f, 0.0f, 0.0f), 0.0f, 1.0f },
-    { DirectX::XMFLOAT3(-0.5f, -0.5f, 0.5f), DirectX::XMFLOAT3(-1.0f, 0.0f, 0.0f), 1.0f, 1.0f },
-    { DirectX::XMFLOAT3(-0.5f,  0.5f, 0.5f), DirectX::XMFLOAT3(-1.0f, 0.0f, 0.0f), 1.0f, 0.0f },
-    { DirectX::XMFLOAT3(0.5f,  0.5f,  0.5f), DirectX::XMFLOAT3(-1.0f, 0.0f, 0.0f), 0.0f, 0.0f },
+    // Задняя грань
+    { DirectX::XMFLOAT3(0.5f, -0.5f,  0.5f), DirectX::XMFLOAT3(0.0f, 0.0f, 1.0f), 0.0f, 1.0f },
+    { DirectX::XMFLOAT3(-0.5f, -0.5f, 0.5f), DirectX::XMFLOAT3(0.0f, 0.0f, 1.0f), 1.0f, 1.0f },
+    { DirectX::XMFLOAT3(-0.5f,  0.5f, 0.5f), DirectX::XMFLOAT3(0.0f, 0.0f, 1.0f), 1.0f, 0.0f },
+    { DirectX::XMFLOAT3(0.5f,  0.5f,  0.5f), DirectX::XMFLOAT3(0.0f, 0.0f, 1.0f), 0.0f, 0.0f },
 
-    // Правая грань (Normal: 1, 0, 0)
-    { DirectX::XMFLOAT3(-0.5f, -0.5f, -0.5f), DirectX::XMFLOAT3(1.0f, 0.0f, 0.0f), 0.0f, 1.0f },
-    { DirectX::XMFLOAT3(0.5f, -0.5f,  -0.5f), DirectX::XMFLOAT3(1.0f, 0.0f, 0.0f), 1.0f, 1.0f },
-    { DirectX::XMFLOAT3(0.5f,  0.5f,  -0.5f), DirectX::XMFLOAT3(1.0f, 0.0f, 0.0f), 1.0f, 0.0f },
-    { DirectX::XMFLOAT3(-0.5f,  0.5f, -0.5f), DirectX::XMFLOAT3(1.0f, 0.0f, 0.0f), 0.0f, 0.0f }
+    // Передняя грань
+    { DirectX::XMFLOAT3(-0.5f, -0.5f, -0.5f), DirectX::XMFLOAT3(0.0f, 0.0f, -1.0f), 0.0f, 1.0f },
+    { DirectX::XMFLOAT3(0.5f, -0.5f,  -0.5f), DirectX::XMFLOAT3(0.0f, 0.0f, -1.0f), 1.0f, 1.0f },
+    { DirectX::XMFLOAT3(0.5f,  0.5f,  -0.5f), DirectX::XMFLOAT3(0.0f, 0.0f, -1.0f), 1.0f, 0.0f },
+    { DirectX::XMFLOAT3(-0.5f,  0.5f, -0.5f), DirectX::XMFLOAT3(0.0f, 0.0f, -1.0f), 0.0f, 0.0f }
 };
 
 static const WORD Indices[] = {
