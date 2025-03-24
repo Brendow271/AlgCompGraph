@@ -9,11 +9,16 @@
 #include <string>
 #include <vector>
 #include <algorithm>
+#include <imgui/imgui.h>
+#include <imgui/backends/imgui_impl_win32.h>
+#include <imgui/backends/imgui_impl_dx11.h>
 
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "dxgi.lib")
 #pragma comment(lib, "d3dcompiler.lib")
 #pragma comment(lib, "dxguid.lib")
+
+extern LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
 #define MAX_LOADSTRING 100
 
@@ -63,6 +68,14 @@ ID3D11Buffer* g_pRectangleVertexBuffer = nullptr;
 ID3D11Buffer* g_pRectangleIndexBuffer = nullptr;
 ID3D11Buffer* g_pRectGeomBuffer = nullptr;
 ID3D11RasterizerState* g_pRasterizerState = nullptr;
+ID3D11Buffer* g_pBaseColorBuffer = nullptr;
+//Light
+
+ID3D11Buffer* g_pLightBuffer = nullptr;
+ID3D11Buffer* g_pLightColorBuffer = nullptr;
+ID3D11PixelShader* g_pLightPS = nullptr;
+ID3D11ShaderResourceView* g_pNormalMapView = nullptr;
+ID3D11Buffer* g_pGeomBuffer3 = nullptr;
 
 DirectX::XMFLOAT4 g_ClearColor = { 0.2f, 0.2f, 0.4f, 1.0f };
 DirectX::XMFLOAT3 g_CameraPosition = { 0.0f, 0.0f, -5.0f };
@@ -79,6 +92,7 @@ bool g_IsPaused = false;
 
 struct GeomBuffer {
     DirectX::XMMATRIX model;
+    DirectX::XMMATRIX normal;
 };
 
 struct VPBuffer {
@@ -95,9 +109,25 @@ struct VPBufferSkyBox {
     DirectX::XMFLOAT4 cameraPos;
 };
 
+struct LightBufferType {
+    DirectX::XMFLOAT3 lightPos;
+    float pad0;
+    DirectX::XMFLOAT3 lightColor;
+    float pad1;
+    DirectX::XMFLOAT3 ambient;
+    float pad2;
+    DirectX::XMFLOAT3 cameraPosition;
+    float pad3;
+};
+
+// Глобальные переменные для управления светом
+DirectX::XMFLOAT3 lightPosition = { 2.5f, 0.6f, 0.0f };
+DirectX::XMFLOAT3 lightColor = { 1.0f, 1.0f, 1.0f };
+
 struct TextureVertex {
     DirectX::XMFLOAT3 position;
-    DirectX::XMFLOAT2 uv;
+    DirectX::XMFLOAT3 normal;
+    float u, v;
 };
 
 struct SkyboxVertex {
@@ -105,42 +135,41 @@ struct SkyboxVertex {
 };
 
 static const TextureVertex Vertices[] = {
-
     // Нижняя грань
-    { DirectX::XMFLOAT3(-0.5f, -0.5f,  0.5f), DirectX::XMFLOAT2(0.0f, 1.0f) },
-    { DirectX::XMFLOAT3(0.5f, -0.5f,  0.5f), DirectX::XMFLOAT2(1.0f, 1.0f) },
-    { DirectX::XMFLOAT3(0.5f, -0.5f, -0.5f), DirectX::XMFLOAT2(1.0f, 0.0f) },
-    { DirectX::XMFLOAT3(-0.5f, -0.5f, -0.5f), DirectX::XMFLOAT2(0.0f, 0.0f) },
+    { DirectX::XMFLOAT3(-0.5f, -0.5f,  0.5f), DirectX::XMFLOAT3(0.0f, -1.0f, 0.0f), 0.0f, 1.0f },
+    { DirectX::XMFLOAT3(0.5f, -0.5f,  0.5f), DirectX::XMFLOAT3(0.0f, -1.0f, 0.0f), 1.0f, 1.0f },
+    { DirectX::XMFLOAT3(0.5f, -0.5f, -0.5f), DirectX::XMFLOAT3(0.0f, -1.0f, 0.0f), 1.0f, 0.0f },
+    { DirectX::XMFLOAT3(-0.5f, -0.5f, -0.5f), DirectX::XMFLOAT3(0.0f, -1.0f, 0.0f), 0.0f, 0.0f },
 
     // Верхняя грань
-    { DirectX::XMFLOAT3(-0.5f,  0.5f, -0.5f), DirectX::XMFLOAT2(0.0f, 1.0f) },
-    { DirectX::XMFLOAT3(0.5f,  0.5f, -0.5f), DirectX::XMFLOAT2(1.0f, 1.0f) },
-    { DirectX::XMFLOAT3(0.5f,  0.5f,  0.5f), DirectX::XMFLOAT2(1.0f, 0.0f) },
-    { DirectX::XMFLOAT3(-0.5f,  0.5f,  0.5f), DirectX::XMFLOAT2(0.0f, 0.0f) },
-
-    // Передняя грань
-    { DirectX::XMFLOAT3(0.5f, -0.5f, -0.5f), DirectX::XMFLOAT2(0.0f, 1.0f) },
-    { DirectX::XMFLOAT3(0.5f, -0.5f,  0.5f), DirectX::XMFLOAT2(1.0f, 1.0f) },
-    { DirectX::XMFLOAT3(0.5f,  0.5f,  0.5f), DirectX::XMFLOAT2(1.0f, 0.0f) },
-    { DirectX::XMFLOAT3(0.5f,  0.5f, -0.5f), DirectX::XMFLOAT2(0.0f, 0.0f) },
-
-    // Задняя грань
-    { DirectX::XMFLOAT3(-0.5f, -0.5f,  0.5f), DirectX::XMFLOAT2(0.0f, 1.0f) },
-    { DirectX::XMFLOAT3(-0.5f, -0.5f, -0.5f), DirectX::XMFLOAT2(1.0f, 1.0f) },
-    { DirectX::XMFLOAT3(-0.5f,  0.5f, -0.5f), DirectX::XMFLOAT2(1.0f, 0.0f) },
-    { DirectX::XMFLOAT3(-0.5f,  0.5f,  0.5f), DirectX::XMFLOAT2(0.0f, 0.0f) },
-
-    // Левая грань
-    { DirectX::XMFLOAT3(0.5f, -0.5f,  0.5f), DirectX::XMFLOAT2(0.0f, 1.0f) },
-    { DirectX::XMFLOAT3(-0.5f, -0.5f,  0.5f), DirectX::XMFLOAT2(1.0f, 1.0f) },
-    { DirectX::XMFLOAT3(-0.5f,  0.5f,  0.5f), DirectX::XMFLOAT2(1.0f, 0.0f) },
-    { DirectX::XMFLOAT3(0.5f,  0.5f,  0.5f), DirectX::XMFLOAT2(0.0f, 0.0f) },
+    { DirectX::XMFLOAT3(-0.5f,  0.5f, -0.5f), DirectX::XMFLOAT3(0.0f, 1.0f, 0.0f), 0.0f, 1.0f },
+    { DirectX::XMFLOAT3(0.5f,  0.5f, -0.5f), DirectX::XMFLOAT3(0.0f, 1.0f, 0.0f), 1.0f, 1.0f },
+    { DirectX::XMFLOAT3(0.5f,  0.5f,  0.5f), DirectX::XMFLOAT3(0.0f, 1.0f, 0.0f), 1.0f, 0.0f },
+    { DirectX::XMFLOAT3(-0.5f,  0.5f,  0.5f), DirectX::XMFLOAT3(0.0f, 1.0f, 0.0f), 0.0f, 0.0f },
 
     // Правая грань
-    { DirectX::XMFLOAT3(-0.5f, -0.5f, -0.5f), DirectX::XMFLOAT2(0.0f, 1.0f) },
-    { DirectX::XMFLOAT3(0.5f, -0.5f, -0.5f), DirectX::XMFLOAT2(1.0f, 1.0f) },
-    { DirectX::XMFLOAT3(0.5f,  0.5f, -0.5f), DirectX::XMFLOAT2(1.0f, 0.0f) },
-    { DirectX::XMFLOAT3(-0.5f,  0.5f, -0.5f), DirectX::XMFLOAT2(0.0f, 0.0f) }
+    { DirectX::XMFLOAT3(0.5f, -0.5f,  -0.5f), DirectX::XMFLOAT3(1.0f, 0.0f, 0.0f), 0.0f, 1.0f },
+    { DirectX::XMFLOAT3(0.5f, -0.5f,  0.5f), DirectX::XMFLOAT3(1.0f, 0.0f, 0.0f), 1.0f, 1.0f },
+    { DirectX::XMFLOAT3(0.5f,  0.5f,  0.5f), DirectX::XMFLOAT3(1.0f, 0.0f, 0.0f), 1.0f, 0.0f },
+    { DirectX::XMFLOAT3(0.5f,  0.5f,  -0.5f), DirectX::XMFLOAT3(1.0f, 0.0f, 0.0f), 0.0f, 0.0f },
+
+    // Левая грань
+    { DirectX::XMFLOAT3(-0.5f, -0.5f, 0.5f), DirectX::XMFLOAT3(-1.0f, 0.0f, 0.0f), 0.0f, 1.0f },
+    { DirectX::XMFLOAT3(-0.5f, -0.5f, -0.5f), DirectX::XMFLOAT3(-1.0f, 0.0f, 0.0f), 1.0f, 1.0f },
+    { DirectX::XMFLOAT3(-0.5f,  0.5f, -0.5f), DirectX::XMFLOAT3(-1.0f, 0.0f, 0.0f), 1.0f, 0.0f },
+    { DirectX::XMFLOAT3(-0.5f,  0.5f, 0.5f), DirectX::XMFLOAT3(-1.0f, 0.0f, 0.0f), 0.0f, 0.0f },
+
+    // Задняя грань
+    { DirectX::XMFLOAT3(0.5f, -0.5f,  0.5f), DirectX::XMFLOAT3(0.0f, 0.0f, 1.0f), 0.0f, 1.0f },
+    { DirectX::XMFLOAT3(-0.5f, -0.5f, 0.5f), DirectX::XMFLOAT3(0.0f, 0.0f, 1.0f), 1.0f, 1.0f },
+    { DirectX::XMFLOAT3(-0.5f,  0.5f, 0.5f), DirectX::XMFLOAT3(0.0f, 0.0f, 1.0f), 1.0f, 0.0f },
+    { DirectX::XMFLOAT3(0.5f,  0.5f,  0.5f), DirectX::XMFLOAT3(0.0f, 0.0f, 1.0f), 0.0f, 0.0f },
+
+    // Передняя грань
+    { DirectX::XMFLOAT3(-0.5f, -0.5f, -0.5f), DirectX::XMFLOAT3(0.0f, 0.0f, -1.0f), 0.0f, 1.0f },
+    { DirectX::XMFLOAT3(0.5f, -0.5f,  -0.5f), DirectX::XMFLOAT3(0.0f, 0.0f, -1.0f), 1.0f, 1.0f },
+    { DirectX::XMFLOAT3(0.5f,  0.5f,  -0.5f), DirectX::XMFLOAT3(0.0f, 0.0f, -1.0f), 1.0f, 0.0f },
+    { DirectX::XMFLOAT3(-0.5f,  0.5f, -0.5f), DirectX::XMFLOAT3(0.0f, 0.0f, -1.0f), 0.0f, 0.0f }
 };
 
 static const WORD Indices[] = {
@@ -209,18 +238,19 @@ SkyboxVertex skyboxVertices[] = {
 
 struct Vertex {
     DirectX::XMFLOAT3 position;
+    DirectX::XMFLOAT3 normal;
 };
 
 struct RectGeomBuffer {
     DirectX::XMMATRIX model;
-    DirectX::XMFLOAT4 color;
+    DirectX::XMMATRIX normal;
 };
 
-Vertex g_RectangleVertices[] = {
-    { DirectX::XMFLOAT3(0.0f, -0.5f, 0.5f) },
-    { DirectX::XMFLOAT3(0.f, 0.5f, 0.5f) },  
-    { DirectX::XMFLOAT3(0.0f, 0.5f, -0.5f) },   
-    { DirectX::XMFLOAT3(0.0f, -0.5f, -0.5f) }   
+Vertex RectangleVertices[] = {
+    { DirectX::XMFLOAT3(0.0f, -0.5f, 0.5f), DirectX::XMFLOAT3(1.0f, 0.0f, 0.0f) },
+    { DirectX::XMFLOAT3(0.0f, 0.5f, 0.5f), DirectX::XMFLOAT3(1.0f, 0.0f, 0.0f) },
+    { DirectX::XMFLOAT3(0.0f, 0.5f, -0.5f), DirectX::XMFLOAT3(1.0f, 0.0f, 0.0f) },
+    { DirectX::XMFLOAT3(0.0f, -0.5f, -0.5f), DirectX::XMFLOAT3(1.0f, 0.0f, .0f) }
 };
 
 WORD g_RectangleIndices[] = {
@@ -244,6 +274,12 @@ DirectX::XMFLOAT4 colors[2] = {
     DirectX::XMFLOAT4(1.0f, 0.0f, 0.0f, 0.5f),
     DirectX::XMFLOAT4(0.0f, 0.0f, 1.0f, 0.5f)
 };
+
+struct BaseColorBufferType {
+    DirectX::XMFLOAT4 baseColor;
+};
+
+
 
 LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
 HRESULT InitD3D(HWND hWnd);
@@ -270,18 +306,18 @@ int APIENTRY WinMain(
         nullptr,
         nullptr,
         nullptr,
-        L"Laboratory work 5",
+        L"Laboratory work 6",
         nullptr
     };
     RegisterClassEx(&wc);
 
     HWND hWnd = CreateWindow(
         wc.lpszClassName,
-        L"Laboratory work 5",
+        L"Laboratory work 6",
         WS_OVERLAPPEDWINDOW,
         100,
         100,
-        800, 600,
+        1200, 800,
         nullptr,
         nullptr,
         wc.hInstance,
@@ -313,10 +349,14 @@ int APIENTRY WinMain(
 
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
+
+    if (ImGui_ImplWin32_WndProcHandler(hWnd, message, wParam, lParam))
+        return true;
+
     switch (message)
     {
     case WM_MOUSEMOVE:
-        if (g_IsMouseDown) {
+        if (!ImGui::GetIO().WantCaptureMouse && g_IsMouseDown) {
             POINT currentMousePos = { LOWORD(lParam), HIWORD(lParam) };
             int deltaX = currentMousePos.x - g_LastMousePos.x;
             int deltaY = currentMousePos.y - g_LastMousePos.y;
@@ -324,6 +364,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             g_Yaw += deltaX * 0.005f;
             g_Pitch += deltaY * 0.005f;
 
+            // Ограничение угла pitch
             if (g_Pitch > DirectX::XM_PIDIV2) g_Pitch = DirectX::XM_PIDIV2;
             if (g_Pitch < -DirectX::XM_PIDIV2) g_Pitch = -DirectX::XM_PIDIV2;
 
@@ -332,8 +373,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         break;
 
     case WM_LBUTTONDOWN:
-        g_LastMousePos = { LOWORD(lParam), HIWORD(lParam) };
-        g_IsMouseDown = true;
+        if (!ImGui::GetIO().WantCaptureMouse) {
+            g_LastMousePos = { LOWORD(lParam), HIWORD(lParam) };
+            g_IsMouseDown = true;
+        }
         break;
 
     case WM_LBUTTONUP:
@@ -564,6 +607,14 @@ HRESULT InitD3D(HWND hWnd)
     vp.TopLeftY = 0;
     g_pImmediateContext->RSSetViewports(1, &vp);
 
+    //Инициализация ImGui
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO(); (void)io;
+    ImGui::StyleColorsDark();
+    ImGui_ImplWin32_Init(hWnd);
+    ImGui_ImplDX11_Init(g_pd3dDevice, g_pImmediateContext);
+
     if (FAILED(InitGraphics()))
     {
         MessageBox(hWnd, L"Failed to initialize graphics.", L"Error", MB_OK);
@@ -577,8 +628,15 @@ HRESULT InitGraphics()
 {
     HRESULT hr = S_OK;
 
-    g_pTextureView = LoadTexture(L"Puppy.dds");
+    g_pTextureView = LoadTexture(L"Stone.dds");
     if (!g_pTextureView) {
+        MessageBox(nullptr, L"Failed to load Stone.dds.", L"Error", MB_OK);
+        return E_FAIL;
+    }
+
+    g_pNormalMapView = LoadTexture(L"StoneNM.dds");
+    if (!g_pNormalMapView) {
+        MessageBox(nullptr, L"Failed to load StoneNM.dds.", L"Error", MB_OK);
         return E_FAIL;
     }
 
@@ -620,10 +678,10 @@ HRESULT InitGraphics()
 
     D3D11_BUFFER_DESC rectVbDesc = {};
     rectVbDesc.Usage = D3D11_USAGE_DEFAULT;
-    rectVbDesc.ByteWidth = sizeof(g_RectangleVertices);
+    rectVbDesc.ByteWidth = sizeof(RectangleVertices);
     rectVbDesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
     D3D11_SUBRESOURCE_DATA rectVbData = {};
-    rectVbData.pSysMem = g_RectangleVertices;
+    rectVbData.pSysMem = RectangleVertices;
 
     hr = g_pd3dDevice->CreateBuffer(&rectVbDesc, &rectVbData, &g_pRectangleVertexBuffer);
     if (FAILED(hr)) {
@@ -668,6 +726,18 @@ HRESULT InitGraphics()
         return hr;
     }
 
+    D3D11_BUFFER_DESC cbDesc3 = {};
+    cbDesc3.Usage = D3D11_USAGE_DEFAULT;
+    cbDesc3.ByteWidth = sizeof(GeomBuffer);
+    cbDesc3.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+    cbDesc3.CPUAccessFlags = 0;
+
+    hr = g_pd3dDevice->CreateBuffer(&cbDesc3, nullptr, &g_pGeomBuffer3);
+    if (FAILED(hr)) {
+        MessageBox(nullptr, L"Failed to create GeomBuffer2.", L"Error", MB_OK);
+        return hr;
+    }
+
     D3D11_BUFFER_DESC vpDesc = {};
     vpDesc.Usage = D3D11_USAGE_DYNAMIC;
     vpDesc.ByteWidth = sizeof(VPBuffer);
@@ -707,6 +777,41 @@ HRESULT InitGraphics()
     hr = g_pd3dDevice->CreateBuffer(&rectGeomBufferDesc, nullptr, &g_pRectGeomBuffer);
     if (FAILED(hr)) {
         MessageBox(nullptr, L"Failed to create RectGeomBuffer.", L"Error", MB_OK);
+        return hr;
+    }
+
+    //Light
+    D3D11_BUFFER_DESC baseColorBufferDesc = {};
+    baseColorBufferDesc.Usage = D3D11_USAGE_DEFAULT;
+    baseColorBufferDesc.ByteWidth = sizeof(BaseColorBufferType);
+    baseColorBufferDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+    baseColorBufferDesc.CPUAccessFlags = 0;
+
+    hr = g_pd3dDevice->CreateBuffer(&baseColorBufferDesc, nullptr, &g_pBaseColorBuffer);
+    if (FAILED(hr)) {
+        MessageBox(nullptr, L"Failed to create BaseColorBuffer.", L"Error", MB_OK);
+        return hr;
+    }
+
+
+    D3D11_BUFFER_DESC lcbDesc = {};
+    lcbDesc.Usage = D3D11_USAGE_DEFAULT;
+    lcbDesc.ByteWidth = sizeof(DirectX::XMFLOAT4);
+    lcbDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+    lcbDesc.CPUAccessFlags = 0;
+    hr = g_pd3dDevice->CreateBuffer(&lcbDesc, nullptr, &g_pLightColorBuffer);
+    if (FAILED(hr))
+        return hr;
+
+    D3D11_BUFFER_DESC lightBufferDesc = {};
+    lightBufferDesc.Usage = D3D11_USAGE_DEFAULT;
+    lightBufferDesc.ByteWidth = sizeof(LightBufferType);
+    lightBufferDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+    lightBufferDesc.CPUAccessFlags = 0;
+
+    hr = g_pd3dDevice->CreateBuffer(&lightBufferDesc, nullptr, &g_pLightBuffer);
+    if (FAILED(hr)) {
+        MessageBox(nullptr, L"Failed to create light buffer.", L"Error", MB_OK);
         return hr;
     }
 
@@ -787,8 +892,10 @@ HRESULT InitGraphics()
 
     D3D11_INPUT_ELEMENT_DESC layout[] = {
         { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
-        { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+        { "NORMAL",   0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+        { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 24, D3D11_INPUT_PER_VERTEX_DATA, 0 }
     };
+
     hr = g_pd3dDevice->CreateInputLayout(layout, ARRAYSIZE(layout), vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), &g_pVertexLayout);
     if (FAILED(hr))
         return hr;
@@ -855,14 +962,55 @@ HRESULT InitGraphics()
         return hr;
 
     D3D11_INPUT_ELEMENT_DESC Rectlayout[] = {
-        { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+       { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+       { "NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0 }
     };
+
     hr = g_pd3dDevice->CreateInputLayout(Rectlayout, ARRAYSIZE(Rectlayout), vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), &g_pTransparentInputLayout);
     if (FAILED(hr))
         return hr;
 
     vsBlob->Release();
     psBlob->Release();
+
+    ID3DBlob* psBlobLight = nullptr;
+    ID3DBlob* errorBlob = nullptr;
+
+    hr = D3DCompileFromFile(
+        L"LightPixelShader.hlsl",
+        nullptr,
+        D3D_COMPILE_STANDARD_FILE_INCLUDE,
+        "PSMain",
+        "ps_5_0",
+        0,
+        0,
+        &psBlobLight,
+        &errorBlob
+    );
+
+    if (FAILED(hr)) {
+        if (errorBlob) {
+            OutputDebugStringA((char*)errorBlob->GetBufferPointer());
+            errorBlob->Release();
+        }
+        MessageBox(nullptr, L"Failed to compile light pixel shader.", L"Error", MB_OK);
+        return hr;
+    }
+
+    hr = g_pd3dDevice->CreatePixelShader(
+        psBlobLight->GetBufferPointer(),
+        psBlobLight->GetBufferSize(),
+        nullptr,
+        &g_pLightPS
+    );
+
+    if (FAILED(hr)) {
+        MessageBox(nullptr, L"Failed to create light pixel shader.", L"Error", MB_OK);
+        psBlobLight->Release();
+        return hr;
+    }
+
+    psBlobLight->Release();
 
     return S_OK;
 }
@@ -943,6 +1091,23 @@ void Render() {
     g_pImmediateContext->ClearRenderTargetView(g_pRenderTargetView, reinterpret_cast<const float*>(&g_ClearColor));
     g_pImmediateContext->ClearDepthStencilView(g_pDepthStencilView, D3D11_CLEAR_DEPTH, 1.0f, 0);
 
+    ImGui_ImplDX11_NewFrame();
+    ImGui_ImplWin32_NewFrame();
+    ImGui::NewFrame();
+
+    ImGui::SetNextWindowSize(ImVec2(300, 125));
+    ImGui::SetNextWindowPos(ImVec2(0, 0));
+
+    ImGui::Begin("Light Controls");
+
+    ImGui::SliderFloat("Light X", &lightPosition.x, -10.0f, 10.0f);
+    ImGui::SliderFloat("Light Y", &lightPosition.y, -10.0f, 10.0f);
+    ImGui::SliderFloat("Light Z", &lightPosition.z, -10.0f, 10.0f);
+
+    ImGui::ColorEdit3("Light Color", reinterpret_cast<float*>(&lightColor));
+
+    ImGui::End();
+
     DirectX::XMVECTOR forward = DirectX::XMVectorSet(
         cosf(g_Pitch) * sinf(g_Yaw),
         sinf(g_Pitch),
@@ -965,7 +1130,7 @@ void Render() {
 
     GeomBufferSkyBox geomBufferSkyBox;
     geomBufferSkyBox.model = DirectX::XMMatrixIdentity();
-    geomBufferSkyBox.size = DirectX::XMFLOAT4(10.0f, 1.0f, 1.0f, 1.0f);
+    geomBufferSkyBox.size = DirectX::XMFLOAT4(20.0f, 1.0f, 1.0f, 1.0f);
 
     g_pImmediateContext->UpdateSubresource(g_pGeomBufferSkyBox, 0, nullptr, &geomBufferSkyBox, 0, 0);
 
@@ -1023,6 +1188,13 @@ void Render() {
         return;
     }
 
+    LightBufferType lightData;
+    lightData.lightPos = lightPosition;
+    lightData.lightColor = lightColor;
+    lightData.ambient = DirectX::XMFLOAT3(0.1f, 0.1f, 0.1f);
+    lightData.cameraPosition = g_CameraPosition;
+    g_pImmediateContext->UpdateSubresource(g_pLightBuffer, 0, nullptr, &lightData, 0, 0);
+
     // Отрисовка первого куба
     if (g_pTextureView) {
         UINT stride = sizeof(TextureVertex);
@@ -1035,11 +1207,16 @@ void Render() {
         g_pImmediateContext->VSSetShader(g_pVertexShader, nullptr, 0);
         g_pImmediateContext->PSSetShader(g_pPixelShader, nullptr, 0);
 
+        g_pImmediateContext->PSSetConstantBuffers(0, 1, &g_pLightBuffer);
         g_pImmediateContext->PSSetShaderResources(0, 1, &g_pTextureView);
+        g_pImmediateContext->PSSetShaderResources(1, 1, &g_pNormalMapView);
         g_pImmediateContext->PSSetSamplers(0, 1, &g_pSamplerState);
 
         GeomBuffer geomBuffer1;
         geomBuffer1.model = DirectX::XMMatrixRotationY(g_RotationAngle);
+        geomBuffer1.normal = DirectX::XMMatrixInverse(nullptr, geomBuffer1.model);
+        geomBuffer1.normal = DirectX::XMMatrixTranspose(geomBuffer1.normal);
+
         g_pImmediateContext->UpdateSubresource(g_pGeomBuffer, 0, nullptr, &geomBuffer1, 0, 0);
 
         g_pImmediateContext->VSSetConstantBuffers(0, 1, &g_pGeomBuffer);
@@ -1061,11 +1238,15 @@ void Render() {
         g_pImmediateContext->VSSetShader(g_pVertexShader, nullptr, 0);
         g_pImmediateContext->PSSetShader(g_pPixelShader, nullptr, 0);
 
+        g_pImmediateContext->PSSetConstantBuffers(0, 1, &g_pLightBuffer);
         g_pImmediateContext->PSSetShaderResources(0, 1, &g_pTextureView);
+        g_pImmediateContext->PSSetShaderResources(1, 1, &g_pNormalMapView);
         g_pImmediateContext->PSSetSamplers(0, 1, &g_pSamplerState);
 
         GeomBuffer geomBuffer2;
         geomBuffer2.model = DirectX::XMMatrixTranslation(2.5f, 0.0f, 0.0f);
+        geomBuffer2.normal = DirectX::XMMatrixInverse(nullptr, geomBuffer2.model);
+        geomBuffer2.normal = DirectX::XMMatrixTranspose(geomBuffer2.normal);
         g_pImmediateContext->UpdateSubresource(g_pGeomBuffer2, 0, nullptr, &geomBuffer2, 0, 0);
 
         g_pImmediateContext->VSSetConstantBuffers(0, 1, &g_pGeomBuffer2);
@@ -1092,6 +1273,7 @@ void Render() {
         g_pImmediateContext->IASetInputLayout(g_pTransparentInputLayout);
 
         RectangleInfo rectangles[2];
+        BaseColorBufferType baseColorData;
         for (int i = 0; i < 2; ++i) {
             DirectX::XMVECTOR rectPosition = DirectX::XMVector3Transform(
                 DirectX::XMVectorSet(0.0f, 0.0f, 0.0f, 1.0f),
@@ -1117,11 +1299,19 @@ void Render() {
         for (int i = 0; i < 2; ++i) {
             RectGeomBuffer rectGeomBuffer;
             rectGeomBuffer.model = rectangles[i].modelMatrix;
-            rectGeomBuffer.color = rectangles[i].color;
+            DirectX::XMMATRIX normalMatrix = DirectX::XMMatrixInverse(nullptr, rectangles[i].modelMatrix);
+            normalMatrix = DirectX::XMMatrixTranspose(normalMatrix);
+            rectGeomBuffer.normal = normalMatrix;
 
             g_pImmediateContext->UpdateSubresource(g_pRectGeomBuffer, 0, nullptr, &rectGeomBuffer, 0, 0);
-            g_pImmediateContext->VSSetConstantBuffers(0, 1, &g_pVPBuffer);
-            g_pImmediateContext->VSSetConstantBuffers(1, 1, &g_pRectGeomBuffer);
+
+            g_pImmediateContext->VSSetConstantBuffers(1, 1, &g_pVPBuffer);
+            g_pImmediateContext->VSSetConstantBuffers(0, 1, &g_pRectGeomBuffer);
+
+            BaseColorBufferType baseColorData;
+            baseColorData.baseColor = rectangles[i].color;
+            g_pImmediateContext->UpdateSubresource(g_pBaseColorBuffer, 0, nullptr, &baseColorData, 0, 0);
+            g_pImmediateContext->PSSetConstantBuffers(1, 1, &g_pBaseColorBuffer);
 
             g_pImmediateContext->DrawIndexed(6, 0, 0);
         }
@@ -1130,47 +1320,104 @@ void Render() {
     g_pImmediateContext->OMSetBlendState(nullptr, nullptr, 0xFFFFFFFF);
     g_pImmediateContext->OMSetDepthStencilState(nullptr, 0);
 
+
+
+    //light
+    UINT stride = sizeof(TextureVertex);
+    UINT offset = 0;
+
+    DirectX::XMMATRIX scale = DirectX::XMMatrixScaling(0.1f, 0.1f, 0.1f);
+    DirectX::XMMATRIX translation = DirectX::XMMatrixTranslation(lightPosition.x, lightPosition.y, lightPosition.z);
+    GeomBuffer geomBuffer3;
+    geomBuffer3.model = scale * translation;
+    geomBuffer3.normal = DirectX::XMMatrixInverse(nullptr, geomBuffer3.model);
+    geomBuffer3.normal = DirectX::XMMatrixTranspose(geomBuffer3.normal);
+    g_pImmediateContext->UpdateSubresource(g_pGeomBuffer3, 0, nullptr, &geomBuffer3, 0, 0);
+
+    g_pImmediateContext->IASetVertexBuffers(0, 1, &g_pVertexBuffer, &stride, &offset);
+    g_pImmediateContext->IASetIndexBuffer(g_pIndexBuffer, DXGI_FORMAT_R16_UINT, 0);
+    g_pImmediateContext->IASetInputLayout(g_pVertexLayout);
+
+    g_pImmediateContext->VSSetShader(g_pVertexShader, nullptr, 0);
+    g_pImmediateContext->PSSetShader(g_pLightPS, nullptr, 0);
+
+    
+    g_pImmediateContext->VSSetConstantBuffers(0, 1, &g_pGeomBuffer3);
+    g_pImmediateContext->VSSetConstantBuffers(1, 1, &g_pVPBuffer);
+    g_pImmediateContext->PSSetConstantBuffers(0, 1, &g_pLightBuffer);
+
+    g_pImmediateContext->DrawIndexed(36, 0, 0);
+
+    ImGui::Render();
+    ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
+
     g_pSwapChain->Present(0, 0);
 }
 
 void CleanupDevice()
 {
+    ImGui_ImplDX11_Shutdown();
+    ImGui_ImplWin32_Shutdown();
+    ImGui::DestroyContext();
+
+    // Освобождение буферов геометрии
     if (g_pGeomBuffer) g_pGeomBuffer->Release();
     if (g_pGeomBuffer2) g_pGeomBuffer2->Release();
+    if (g_pGeomBuffer3) g_pGeomBuffer3->Release();
     if (g_pVPBuffer) g_pVPBuffer->Release();
     if (g_pIndexBuffer) g_pIndexBuffer->Release();
+
+    // Освобождение шейдеров и макетов входных данных
     if (g_pVertexLayout) g_pVertexLayout->Release();
     if (g_pSkyboxVertexLayout) g_pSkyboxVertexLayout->Release();
     if (g_pVertexBuffer) g_pVertexBuffer->Release();
     if (g_pVertexShader) g_pVertexShader->Release();
     if (g_pPixelShader) g_pPixelShader->Release();
-    if (g_pDebug) g_pDebug->Release();
-    if (g_pRenderTargetView) g_pRenderTargetView->Release();
-    if (g_pSwapChain) g_pSwapChain->Release();
-    if (g_pImmediateContext) g_pImmediateContext->Release();
-    if (g_pd3dDevice) g_pd3dDevice->Release();
-    if (g_pGeomBufferSkyBox) g_pGeomBufferSkyBox->Release();
-    if (g_pVPBufferSkyBox) g_pVPBufferSkyBox->Release();
+
+    // Освобождение текстур и семплеров
     if (g_pTextureView) g_pTextureView->Release();
+    if (g_pNormalMapView) g_pNormalMapView->Release();
     if (g_pSamplerState) g_pSamplerState->Release();
 
+    // Освобождение буферов глубины
     if (g_pDepthStencilView) g_pDepthStencilView->Release();
     if (g_pDepthStencilTexture) g_pDepthStencilTexture->Release();
     if (g_pDepthStencilState) g_pDepthStencilState->Release();
 
+    // Освобождение состояний смешивания и растеризации
     if (g_pTransBlendState) g_pTransBlendState->Release();
     if (g_pNoDepthWriteState) g_pNoDepthWriteState->Release();
+    if (g_pRasterizerState) g_pRasterizerState->Release();
+
+    // Освобождение прозрачных объектов
     if (g_pTransparentInputLayout) g_pTransparentInputLayout->Release();
     if (g_pTransparentPixelShader) g_pTransparentPixelShader->Release();
     if (g_pTransparentVertexShader) g_pTransparentVertexShader->Release();
     if (g_pRectangleVertexBuffer) g_pRectangleVertexBuffer->Release();
     if (g_pRectangleIndexBuffer) g_pRectangleIndexBuffer->Release();
     if (g_pRectGeomBuffer) g_pRectGeomBuffer->Release();
-    if (g_pRasterizerState) g_pRasterizerState->Release();
+    if (g_pBaseColorBuffer) g_pBaseColorBuffer->Release();
 
+    // Освобождение skybox
     if (g_pCubemapView) g_pCubemapView->Release();
     if (g_pSkyboxVertexShader) g_pSkyboxVertexShader->Release();
     if (g_pSkyboxPixelShader) g_pSkyboxPixelShader->Release();
     if (g_pSkyboxVertexBuffer) g_pSkyboxVertexBuffer->Release();
     if (g_pSkyboxIndexBuffer) g_pSkyboxIndexBuffer->Release();
+    if (g_pGeomBufferSkyBox) g_pGeomBufferSkyBox->Release();
+    if (g_pVPBufferSkyBox) g_pVPBufferSkyBox->Release();
+
+    // Освобождение световых ресурсов
+    if (g_pLightBuffer) g_pLightBuffer->Release();
+    if (g_pLightColorBuffer) g_pLightColorBuffer->Release();
+    if (g_pLightPS) g_pLightPS->Release();
+
+    // Освобождение основных ресурсов Direct3D
+    if (g_pRenderTargetView) g_pRenderTargetView->Release();
+    if (g_pSwapChain) g_pSwapChain->Release();
+    if (g_pImmediateContext) g_pImmediateContext->Release();
+    if (g_pd3dDevice) g_pd3dDevice->Release();
+
+    // Освобождение отладчика   
+    if (g_pDebug) g_pDebug->Release();
 }
