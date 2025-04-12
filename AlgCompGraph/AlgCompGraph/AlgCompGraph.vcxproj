@@ -120,6 +120,22 @@
       <AdditionalLibraryDirectories>$(SolutionDir)\ThirdParty\DirectXTex-main\DirectXTex-main\DirectXTex\Bin\Desktop_2022_Win10\x64\Debug;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalDependencies>DirectXTex.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
+    <PostBuildEvent>
+      <Command>xcopy "$(ProjectDir)VertexShader.hlsl" "$(TargetDir)" /E /I /Y 
+xcopy "$(ProjectDir)PixelShader.hlsl" "$(TargetDir)" /E /I /Y 
+xcopy "$(ProjectDir)SpherePixelShader.hlsl" "$(TargetDir)" /E /I /Y
+xcopy "$(ProjectDir)SphereVertexShader.hlsl" "$(TargetDir)" /E /I /Y 
+xcopy "$(ProjectDir)TransparentVertexShader.hlsl" "$(TargetDir)" /E /I /Y
+xcopy "$(ProjectDir)TransparentPixelShader.hlsl" "$(TargetDir)" /E /I /Y 
+xcopy "$(ProjectDir)Puppy.dds" "$(TargetDir)" /E /I /Y 
+xcopy "$(ProjectDir)СubeMap.dds" "$(TargetDir)" /E /I /Y 
+xcopy "$(ProjectDir)Stone.dds" "$(TargetDir)" /E /I /Y 
+xcopy "$(ProjectDir)StoneNM.dds" "$(TargetDir)" /E /I /Y 
+xcopy "$(ProjectDir)LightPixelShader.hlsl" "$(TargetDir)" /E /I /Y 
+xcopy "$(ProjectDir)LightVertexShader.hlsl" "$(TargetDir)" /E /I /Y
+xcopy "$(ProjectDir)PostPixelShader.hlsl" "$(TargetDir)" /E /I /Y
+xcopy "$(ProjectDir)PostVertexShader.hlsl" "$(TargetDir)" /E /I /Y </Command>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
@@ -157,7 +173,10 @@ xcopy "$(ProjectDir)Puppy.dds" "$(TargetDir)" /E /I /Y
 xcopy "$(ProjectDir)СubeMap.dds" "$(TargetDir)" /E /I /Y 
 xcopy "$(ProjectDir)Stone.dds" "$(TargetDir)" /E /I /Y 
 xcopy "$(ProjectDir)StoneNM.dds" "$(TargetDir)" /E /I /Y 
-xcopy "$(ProjectDir)LightPixelShader.hlsl" "$(TargetDir)" /E /I /Y </Command>
+xcopy "$(ProjectDir)LightPixelShader.hlsl" "$(TargetDir)" /E /I /Y 
+xcopy "$(ProjectDir)LightVertexShader.hlsl" "$(TargetDir)" /E /I /Y
+xcopy "$(ProjectDir)PostPixelShader.hlsl" "$(TargetDir)" /E /I /Y
+xcopy "$(ProjectDir)PostVertexShader.hlsl" "$(TargetDir)" /E /I /Y </Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>

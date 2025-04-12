@@ -9,6 +9,8 @@
 #include <string>
 #include <vector>
 #include <algorithm>
+#include <array>
+#include <cmath>
 #include <imgui/imgui.h>
 #include <imgui/backends/imgui_impl_win32.h>
 #include <imgui/backends/imgui_impl_dx11.h>
@@ -21,6 +23,9 @@
 extern LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
 #define MAX_LOADSTRING 100
+
+const int NUM_INSTANCES = 10;
+const int NUM_TEX = 2;
 
 // Global Variables:
 HINSTANCE hInst;                                // current instance
@@ -44,9 +49,11 @@ ID3D11Buffer* g_pGeomBuffer = nullptr;
 ID3D11Buffer* g_pVPBuffer = nullptr;
 ID3D11Buffer* g_pGeomBufferSkyBox = nullptr;
 ID3D11Buffer* g_pVPBufferSkyBox = nullptr;
-ID3D11ShaderResourceView* g_pTextureView = nullptr;
+ID3D11ShaderResourceView* g_pTextureView_stone = nullptr;
+ID3D11ShaderResourceView* g_pTextureView_puppy = nullptr;
 ID3D11SamplerState* g_pSamplerState = nullptr;
 ID3D11Buffer* g_pGeomBuffer2 = nullptr;
+
 
 // Skybox variables
 ID3D11ShaderResourceView* g_pCubemapView = nullptr;
@@ -76,6 +83,18 @@ ID3D11Buffer* g_pLightColorBuffer = nullptr;
 ID3D11PixelShader* g_pLightPS = nullptr;
 ID3D11ShaderResourceView* g_pNormalMapView = nullptr;
 ID3D11Buffer* g_pGeomBuffer3 = nullptr;
+ID3D11VertexShader* g_pLightVertexShader = nullptr;
+ID3D11InputLayout* g_pLightInputLayout = nullptr;
+
+//PostProc
+
+ID3D11Texture2D* g_pSceneTexture = nullptr;
+ID3D11RenderTargetView* g_pSceneRenderTargetView = nullptr;
+ID3D11ShaderResourceView* g_pSceneShaderResourceView = nullptr;
+ID3D11Buffer* g_pPostProcessVertexBuffer = nullptr;
+ID3D11VertexShader* g_pPostProcessVertexShader = nullptr;
+ID3D11PixelShader* g_pPostProcessPixelShader = nullptr;
+ID3D11InputLayout* g_pPostProcessInputLayout = nullptr;
 
 DirectX::XMFLOAT4 g_ClearColor = { 0.2f, 0.2f, 0.4f, 1.0f };
 DirectX::XMFLOAT3 g_CameraPosition = { 0.0f, 0.0f, -5.0f };
@@ -90,7 +109,15 @@ float g_Yaw = 0.0f;
 float g_Pitch = 0.0f;
 bool g_IsPaused = false;
 
+bool g_EnablePostProcessing = true;
+
 struct GeomBuffer {
+    DirectX::XMMATRIX models[NUM_INSTANCES];
+    DirectX::XMMATRIX normals[NUM_INSTANCES];
+    DirectX::XMFLOAT4 isNormalMapActive[NUM_INSTANCES];
+};
+
+struct GeomBufferLight {
     DirectX::XMMATRIX model;
     DirectX::XMMATRIX normal;
 };
@@ -279,7 +306,23 @@ struct BaseColorBufferType {
     DirectX::XMFLOAT4 baseColor;
 };
 
+struct AABB {
+    DirectX::XMFLOAT3 min;
+    DirectX::XMFLOAT3 max;
+};
 
+struct FrustumPlane {
+    float a, b, c, d;
+};
+
+struct PostProcessVertex {
+    DirectX::XMFLOAT3 position;
+    DirectX::XMFLOAT2 texCoord;
+};
+
+bool g_EnableFrustumCulling = true;
+std::vector<int> g_VisibleCubeIndices;
+GeomBuffer g_mBuffers;
 
 LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
 HRESULT InitD3D(HWND hWnd);
@@ -290,6 +333,183 @@ HRESULT InitGraphics();
 ID3D11ShaderResourceView* LoadTexture(const std::wstring& filePath);
 ID3D11ShaderResourceView* LoadCubemap(const std::wstring& filePath);
 ID3D11SamplerState* CreateSampler();
+
+void InitializeGeometry() {
+    float radius = 5.0f;
+    for (int i = 0; i < NUM_INSTANCES; ++i) {
+        float angle = i * (DirectX::XM_2PI / NUM_INSTANCES);
+        g_mBuffers.models[i] = DirectX::XMMatrixTranslation(radius * cos(angle), 0.0f, radius * sin(angle));
+        g_mBuffers.normals[i] = DirectX::XMMatrixInverse(nullptr, g_mBuffers.models[i]);
+        g_mBuffers.isNormalMapActive[i] = DirectX::XMFLOAT4(i % 2, i % 2, i % 2, i % 2);
+    }
+
+    // Инициализация видимых кубов
+    g_VisibleCubeIndices.resize(NUM_INSTANCES);
+    for (int i = 0; i < NUM_INSTANCES; ++i) {
+        g_VisibleCubeIndices[i] = i;
+    }
+}
+
+std::array<FrustumPlane, 6> ExtractFrustumPlanes(const DirectX::XMMATRIX& viewProjMatrix) {
+    std::array<FrustumPlane, 6> planes;
+
+    DirectX::XMFLOAT4X4 matrix;
+    DirectX::XMStoreFloat4x4(&matrix, viewProjMatrix);
+
+    // Near plane
+    planes[0] = { matrix._13, matrix._23, matrix._33, matrix._43 };
+    // Far plane
+    planes[1] = { matrix._14 - matrix._13, matrix._24 - matrix._23, matrix._34 - matrix._33, matrix._44 - matrix._43 };
+    // Left plane
+    planes[2] = { matrix._14 + matrix._11, matrix._24 + matrix._21, matrix._34 + matrix._31, matrix._44 + matrix._41 };
+    // Right plane
+    planes[3] = { matrix._14 - matrix._11, matrix._24 - matrix._21, matrix._34 - matrix._31, matrix._44 - matrix._41 };
+    // Top plane
+    planes[4] = { matrix._14 - matrix._12, matrix._24 - matrix._22, matrix._34 - matrix._32, matrix._44 - matrix._42 };
+    // Bottom plane
+    planes[5] = { matrix._14 + matrix._12, matrix._24 + matrix._22, matrix._34 + matrix._32, matrix._44 + matrix._42 };
+
+    for (auto& plane : planes) {
+        float length = sqrt(plane.a * plane.a + plane.b * plane.b + plane.c * plane.c);
+        plane.a /= length;
+        plane.b /= length;
+        plane.c /= length;
+        plane.d /= length;
+    }
+
+    return planes;
+}
+
+std::vector<DirectX::XMFLOAT3> ExtractCubePositions(const GeomBuffer& mBuffers) {
+    std::vector<DirectX::XMFLOAT3> positions;
+    for (int i = 0; i < NUM_INSTANCES; ++i) {
+        DirectX::XMFLOAT4X4 modelMatrix;
+        DirectX::XMStoreFloat4x4(&modelMatrix, mBuffers.models[i]);
+        DirectX::XMFLOAT3 position = { modelMatrix._41, modelMatrix._42, modelMatrix._43 };
+        positions.push_back(position);
+    }
+    return positions;
+}
+
+std::vector<AABB> CreateAABBs(const std::vector<DirectX::XMFLOAT3>& positions, float cubeSize) {
+    std::vector<AABB> aabbs;
+
+    float halfDiagonal = (cubeSize * std::sqrt(3.0f)) / 2.0f;
+
+    for (const auto& pos : positions) {
+        AABB aabb;
+        aabb.min = { pos.x - halfDiagonal, pos.y - halfDiagonal, pos.z - halfDiagonal };
+        aabb.max = { pos.x + halfDiagonal, pos.y + halfDiagonal, pos.z + halfDiagonal };
+        aabbs.push_back(aabb);
+    }
+
+    return aabbs;
+}
+
+bool IsBoxInside(const std::array<FrustumPlane, 6>& frustum, const DirectX::XMFLOAT3& bbMin, const DirectX::XMFLOAT3& bbMax) {
+    for (const auto& plane : frustum) {
+        DirectX::XMFLOAT3 norm = { plane.a, plane.b, plane.c };
+        DirectX::XMFLOAT3 p(
+            signbit(norm.x) ? bbMin.x : bbMax.x,
+            signbit(norm.y) ? bbMin.y : bbMax.y,
+            signbit(norm.z) ? bbMin.z : bbMax.z
+        );
+
+        float distance = plane.a * p.x + plane.b * p.y + plane.c * p.z + plane.d;
+        if (distance < 0.0f) {
+            return false;
+        }
+    }
+    return true;
+}
+
+std::vector<int> PerformFrustumCulling(const std::array<FrustumPlane, 6>& frustumPlanes,
+    const std::vector<AABB>& aabbs) {
+    std::vector<int> visibleIndices;
+    for (size_t i = 0; i < aabbs.size(); ++i) {
+        if (IsBoxInside(frustumPlanes, aabbs[i].min, aabbs[i].max)) {
+            visibleIndices.push_back(static_cast<int>(i));
+        }
+    }
+    return visibleIndices;
+}
+
+//Post
+
+HRESULT CreateSceneTexture(UINT width, UINT height) {
+    D3D11_TEXTURE2D_DESC textureDesc = {};
+    textureDesc.Width = width;
+    textureDesc.Height = height;
+    textureDesc.MipLevels = 1;
+    textureDesc.ArraySize = 1;
+    textureDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    textureDesc.SampleDesc.Count = 1;
+    textureDesc.Usage = D3D11_USAGE_DEFAULT;
+    textureDesc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+
+    HRESULT hr = g_pd3dDevice->CreateTexture2D(&textureDesc, nullptr, &g_pSceneTexture);
+    if (FAILED(hr)) return hr;
+
+    hr = g_pd3dDevice->CreateRenderTargetView(g_pSceneTexture, nullptr, &g_pSceneRenderTargetView);
+    if (FAILED(hr)) return hr;
+
+    hr = g_pd3dDevice->CreateShaderResourceView(g_pSceneTexture, nullptr, &g_pSceneShaderResourceView);
+    if (FAILED(hr)) return hr;
+
+    return S_OK;
+}
+
+HRESULT CreatePostProcessQuad() {
+    PostProcessVertex vertices[] = {
+        { {-1.0f, -1.0f, 0.0f}, {0.0f, 1.0f} },
+        { {-1.0f,  1.0f, 0.0f}, {0.0f, 0.0f} },
+        { { 1.0f, -1.0f, 0.0f}, {1.0f, 1.0f} },
+        { { 1.0f,  1.0f, 0.0f}, {1.0f, 0.0f} }
+    };
+
+    D3D11_BUFFER_DESC bufferDesc = {};
+    bufferDesc.Usage = D3D11_USAGE_IMMUTABLE;
+    bufferDesc.ByteWidth = sizeof(vertices);
+    bufferDesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+
+    D3D11_SUBRESOURCE_DATA initData = {};
+    initData.pSysMem = vertices;
+
+    HRESULT hr = g_pd3dDevice->CreateBuffer(&bufferDesc, &initData, &g_pPostProcessVertexBuffer);
+    if (FAILED(hr)) return hr;
+
+    return S_OK;
+}
+
+HRESULT CompilePostProcessShaders() {
+    ID3DBlob* vsBlob = nullptr;
+    ID3DBlob* psBlob = nullptr;
+
+    HRESULT hr = D3DCompileFromFile(L"PostVertexShader.hlsl", nullptr, nullptr, "VSmain", "vs_5_0", 0, 0, &vsBlob, nullptr);
+    if (FAILED(hr)) return hr;
+
+    hr = D3DCompileFromFile(L"PostPixelShader.hlsl", nullptr, nullptr, "VSmain", "ps_5_0", 0, 0, &psBlob, nullptr);
+    if (FAILED(hr)) return hr;
+
+    hr = g_pd3dDevice->CreateVertexShader(vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), nullptr, &g_pPostProcessVertexShader);
+    if (FAILED(hr)) return hr;
+
+    hr = g_pd3dDevice->CreatePixelShader(psBlob->GetBufferPointer(), psBlob->GetBufferSize(), nullptr, &g_pPostProcessPixelShader);
+    if (FAILED(hr)) return hr;
+
+    D3D11_INPUT_ELEMENT_DESC layout[] = {
+        { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+        { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0 }
+    };
+
+    hr = g_pd3dDevice->CreateInputLayout(layout, ARRAYSIZE(layout), vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), &g_pPostProcessInputLayout);
+    if (FAILED(hr)) return hr;
+
+    vsBlob->Release();
+    psBlob->Release();
+
+    return S_OK;
+}
 
 int APIENTRY WinMain(
     _In_ HINSTANCE hInstance,
@@ -414,74 +634,90 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         break;
 
     case WM_SIZE:
-        if (g_pd3dDevice != nullptr && g_pSwapChain != nullptr) {
-            if (g_pRenderTargetView) {
-                g_pImmediateContext->OMSetRenderTargets(0, nullptr, nullptr);
-                g_pRenderTargetView->Release();
-                g_pRenderTargetView = nullptr;
-            }
-            if (g_pDepthStencilView) {
-                g_pDepthStencilView->Release();
-                g_pDepthStencilView = nullptr;
-            }
-            if (g_pDepthStencilTexture) {
-                g_pDepthStencilTexture->Release();
-                g_pDepthStencilTexture = nullptr;
-            }
-            if (g_pDepthStencilState)
+        {
+            if (g_pd3dDevice != nullptr && g_pSwapChain != nullptr)
             {
-                g_pDepthStencilState->Release();
-                g_pDepthStencilState = nullptr;
+                // Сохраняем контекст устройства и другие важные состояния
+                ID3D11DeviceContext* context = g_pImmediateContext;
+                context->OMSetRenderTargets(0, nullptr, nullptr);
+
+                // Освобождаем старые ресурсы
+                g_pRenderTargetView->Release();
+                g_pDepthStencilView->Release();
+                g_pDepthStencilTexture->Release();
+                g_pSceneRenderTargetView->Release();
+                g_pSceneShaderResourceView->Release();
+                g_pSceneTexture->Release();
+
+                // Изменяем размер буферов подкачки
+                HRESULT hr = g_pSwapChain->ResizeBuffers(0, LOWORD(lParam), HIWORD(lParam), DXGI_FORMAT_UNKNOWN, 0);
+                if (FAILED(hr))
+                {
+                    MessageBox(hWnd, L"Failed to resize swap chain buffers.", L"Error", MB_OK);
+                    break;
+                }
+
+                // Создаем новый render target view
+                ID3D11Texture2D* pBackBuffer = nullptr;
+                hr = g_pSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&pBackBuffer));
+                if (FAILED(hr) || pBackBuffer == nullptr)
+                {
+                    MessageBox(hWnd, L"Failed to get back buffer from swap chain.", L"Error", MB_OK);
+                    break;
+                }
+
+                hr = g_pd3dDevice->CreateRenderTargetView(pBackBuffer, nullptr, &g_pRenderTargetView);
+                pBackBuffer->Release();
+                if (FAILED(hr))
+                {
+                    MessageBox(hWnd, L"Failed to create render target view.", L"Error", MB_OK);
+                    break;
+                }
+
+                // Создаем новый depth stencil texture и view
+                D3D11_TEXTURE2D_DESC descDepth = {};
+                descDepth.Width = LOWORD(lParam);
+                descDepth.Height = HIWORD(lParam);
+                descDepth.MipLevels = 1;
+                descDepth.ArraySize = 1;
+                descDepth.Format = DXGI_FORMAT_D32_FLOAT;
+                descDepth.SampleDesc.Count = 1;
+                descDepth.SampleDesc.Quality = 0;
+                descDepth.Usage = D3D11_USAGE_DEFAULT;
+                descDepth.BindFlags = D3D11_BIND_DEPTH_STENCIL;
+
+                hr = g_pd3dDevice->CreateTexture2D(&descDepth, nullptr, &g_pDepthStencilTexture);
+                if (FAILED(hr))
+                {
+                    MessageBox(hWnd, L"Failed to create depth stencil texture.", L"Error", MB_OK);
+                    break;
+                }
+
+                hr = g_pd3dDevice->CreateDepthStencilView(g_pDepthStencilTexture, nullptr, &g_pDepthStencilView);
+                if (FAILED(hr))
+                {
+                    MessageBox(hWnd, L"Failed to create depth stencil view.", L"Error", MB_OK);
+                    break;
+                }
+
+                // Пересоздаем текстуру сцены для постпроцессинга
+                hr = CreateSceneTexture(LOWORD(lParam), HIWORD(lParam));
+                if (FAILED(hr))
+                {
+                    MessageBox(hWnd, L"Failed to recreate scene texture.", L"Error", MB_OK);
+                    break;
+                }
+
+                // Устанавливаем viewport
+                D3D11_VIEWPORT vp = {};
+                vp.Width = static_cast<float>(LOWORD(lParam));
+                vp.Height = static_cast<float>(HIWORD(lParam));
+                vp.MinDepth = 0.0f;
+                vp.MaxDepth = 1.0f;
+                vp.TopLeftX = 0;
+                vp.TopLeftY = 0;
+                context->RSSetViewports(1, &vp);
             }
-
-            g_pSwapChain->ResizeBuffers(0, LOWORD(lParam), HIWORD(lParam), DXGI_FORMAT_UNKNOWN, 0);
-
-            ID3D11Texture2D* pBackBuffer = nullptr;
-            HRESULT hr = g_pSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), (LPVOID*)&pBackBuffer);
-            if (FAILED(hr) || pBackBuffer == nullptr) {
-                OutputDebugStringA("Failed to get back buffer from swap chain.\n");
-                break;
-            }
-
-            hr = g_pd3dDevice->CreateRenderTargetView(pBackBuffer, nullptr, &g_pRenderTargetView);
-            pBackBuffer->Release();
-
-            if (FAILED(hr)) {
-                OutputDebugStringA("Failed to create render target view.\n");
-                break;
-            }
-
-            D3D11_TEXTURE2D_DESC descDepth = {};
-            descDepth.Width = LOWORD(lParam);
-            descDepth.Height = HIWORD(lParam);
-            descDepth.MipLevels = 1;
-            descDepth.ArraySize = 1;
-            descDepth.Format = DXGI_FORMAT_D32_FLOAT;
-            descDepth.SampleDesc.Count = 1;
-            descDepth.SampleDesc.Quality = 0;
-            descDepth.Usage = D3D11_USAGE_DEFAULT;
-            descDepth.BindFlags = D3D11_BIND_DEPTH_STENCIL;
-            descDepth.CPUAccessFlags = 0;
-            descDepth.MiscFlags = 0;
-
-            hr = g_pd3dDevice->CreateTexture2D(&descDepth, nullptr, &g_pDepthStencilTexture);
-            if (FAILED(hr)) {
-                MessageBox(hWnd, L"Failed to create depth texture.", L"Error", MB_OK);
-                break;
-            }
-
-            hr = g_pd3dDevice->CreateDepthStencilView(g_pDepthStencilTexture, nullptr, &g_pDepthStencilView);
-            if (FAILED(hr)) {
-                MessageBox(hWnd, L"Failed to create depth stencil view.", L"Error", MB_OK);
-                break;
-            }
-
-            D3D11_VIEWPORT vp = {};
-            vp.Width = static_cast<FLOAT>(LOWORD(lParam));
-            vp.Height = static_cast<FLOAT>(HIWORD(lParam));
-            vp.MinDepth = 0.0f;
-            vp.MaxDepth = 1.0f;
-            g_pImmediateContext->RSSetViewports(1, &vp);
         }
         break;
 
@@ -607,6 +843,24 @@ HRESULT InitD3D(HWND hWnd)
     vp.TopLeftY = 0;
     g_pImmediateContext->RSSetViewports(1, &vp);
 
+    hr = CreateSceneTexture(800, 600);
+    if (FAILED(hr)) {
+        MessageBox(nullptr, L"Failed to create scene texture.", L"Error", MB_OK);
+        return hr;
+    }
+
+    hr = CreatePostProcessQuad();
+    if (FAILED(hr)) {
+        MessageBox(nullptr, L"Failed to create post-process quad.", L"Error", MB_OK);
+        return hr;
+    }
+
+    hr = CompilePostProcessShaders();
+    if (FAILED(hr)) {
+        MessageBox(nullptr, L"Failed to compile post-process shaders.", L"Error", MB_OK);
+        return hr;
+    }
+
     //Инициализация ImGui
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
@@ -628,9 +882,15 @@ HRESULT InitGraphics()
 {
     HRESULT hr = S_OK;
 
-    g_pTextureView = LoadTexture(L"Stone.dds");
-    if (!g_pTextureView) {
+    g_pTextureView_stone = LoadTexture(L"Stone.dds");
+    if (!g_pTextureView_stone) {
         MessageBox(nullptr, L"Failed to load Stone.dds.", L"Error", MB_OK);
+        return E_FAIL;
+    }
+
+    g_pTextureView_puppy = LoadTexture(L"Puppy.dds");
+    if (!g_pTextureView_puppy) {
+        MessageBox(nullptr, L"Failed to load Puppy.dds.", L"Error", MB_OK);
         return E_FAIL;
     }
 
@@ -703,38 +963,28 @@ HRESULT InitGraphics()
     }
 
     D3D11_BUFFER_DESC cbDesc = {};
-    cbDesc.Usage = D3D11_USAGE_DEFAULT;
-    cbDesc.ByteWidth = sizeof(GeomBuffer);
+    cbDesc.ByteWidth = sizeof(DirectX::XMMATRIX) * NUM_INSTANCES * 2 +
+        sizeof(DirectX::XMFLOAT4) * NUM_INSTANCES;
+    cbDesc.Usage = D3D11_USAGE_DYNAMIC;
     cbDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-    cbDesc.CPUAccessFlags = 0;
-
+    cbDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
     hr = g_pd3dDevice->CreateBuffer(&cbDesc, nullptr, &g_pGeomBuffer);
     if (FAILED(hr)) {
         MessageBox(nullptr, L"Failed to create GeomBuffer.", L"Error", MB_OK);
         return hr;
-    }
+    }    
 
-    D3D11_BUFFER_DESC cbDesc2 = {};
-    cbDesc2.Usage = D3D11_USAGE_DEFAULT;
-    cbDesc2.ByteWidth = sizeof(GeomBuffer);
-    cbDesc2.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-    cbDesc2.CPUAccessFlags = 0;
+    InitializeGeometry();
 
-    hr = g_pd3dDevice->CreateBuffer(&cbDesc2, nullptr, &g_pGeomBuffer2);
+    D3D11_BUFFER_DESC cbDescLight = {};
+    cbDescLight.ByteWidth = sizeof(GeomBufferLight);
+    cbDescLight.Usage = D3D11_USAGE_DEFAULT;
+    cbDescLight.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+    cbDescLight.CPUAccessFlags = 0;
+
+    hr = g_pd3dDevice->CreateBuffer(&cbDescLight, nullptr, &g_pGeomBuffer3);
     if (FAILED(hr)) {
-        MessageBox(nullptr, L"Failed to create GeomBuffer2.", L"Error", MB_OK);
-        return hr;
-    }
-
-    D3D11_BUFFER_DESC cbDesc3 = {};
-    cbDesc3.Usage = D3D11_USAGE_DEFAULT;
-    cbDesc3.ByteWidth = sizeof(GeomBuffer);
-    cbDesc3.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-    cbDesc3.CPUAccessFlags = 0;
-
-    hr = g_pd3dDevice->CreateBuffer(&cbDesc3, nullptr, &g_pGeomBuffer3);
-    if (FAILED(hr)) {
-        MessageBox(nullptr, L"Failed to create GeomBuffer2.", L"Error", MB_OK);
+        MessageBox(nullptr, L"Failed to create GeomBuffer3.", L"Error", MB_OK);
         return hr;
     }
 
@@ -1012,6 +1262,65 @@ HRESULT InitGraphics()
 
     psBlobLight->Release();
 
+    ID3DBlob* vsBlobLight = nullptr;
+    ID3DBlob* errorBlobLight = nullptr;
+
+    hr = D3DCompileFromFile(
+        L"LightVertexShader.hlsl",
+        nullptr,
+        D3D_COMPILE_STANDARD_FILE_INCLUDE,
+        "VSMain",
+        "vs_5_0",
+        0,
+        0,
+        &vsBlobLight,
+        &errorBlobLight
+    );
+
+    if (FAILED(hr)) {
+        if (errorBlobLight) {
+            OutputDebugStringA((char*)errorBlobLight->GetBufferPointer());
+            errorBlobLight->Release();
+        }
+        MessageBox(nullptr, L"Failed to compile LightVertexShader.", L"Error", MB_OK);
+        return hr;
+    }
+
+    hr = g_pd3dDevice->CreateVertexShader(
+        vsBlobLight->GetBufferPointer(),
+        vsBlobLight->GetBufferSize(),
+        nullptr,
+        &g_pLightVertexShader
+    );
+
+    if (FAILED(hr)) {
+        MessageBox(nullptr, L"Failed to create LightVertexShader.", L"Error", MB_OK);
+        vsBlobLight->Release();
+        return hr;
+    }
+
+    D3D11_INPUT_ELEMENT_DESC lightLayout[] = {
+        { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+        { "NORMAL",   0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+        { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT,    0, 24, D3D11_INPUT_PER_VERTEX_DATA, 0 }
+    };
+
+    hr = g_pd3dDevice->CreateInputLayout(
+        lightLayout,
+        ARRAYSIZE(lightLayout),
+        vsBlobLight->GetBufferPointer(),
+        vsBlobLight->GetBufferSize(),
+        &g_pLightInputLayout
+    );
+
+    if (FAILED(hr)) {
+        MessageBox(nullptr, L"Failed to create input layout for LightVertexShader.", L"Error", MB_OK);
+        vsBlobLight->Release();
+        return hr;
+    }
+
+    vsBlobLight->Release();
+
     return S_OK;
 }
 
@@ -1073,6 +1382,44 @@ ID3D11SamplerState* CreateSampler() {
     return samplerState;
 }
 
+void UpdateVisibleCubes(const std::array<FrustumPlane, 6>& frustumPlanes, const std::vector<AABB>& cubeAABBs) {
+    g_VisibleCubeIndices.clear();
+
+    if (g_EnableFrustumCulling) {
+        for (size_t i = 0; i < cubeAABBs.size(); ++i) {
+            if (IsBoxInside(frustumPlanes, cubeAABBs[i].min, cubeAABBs[i].max)) {
+                g_VisibleCubeIndices.push_back(static_cast<int>(i));
+            }
+        }
+    }
+    else {
+        // Если culling отключен, все инстансы видимы
+        g_VisibleCubeIndices.resize(NUM_INSTANCES);
+        for (int i = 0; i < NUM_INSTANCES; ++i) {
+            g_VisibleCubeIndices[i] = i;
+        }
+    }
+}
+
+void UpdateGeometryBuffer() {
+    D3D11_MAPPED_SUBRESOURCE mappedResource;
+    if (FAILED(g_pImmediateContext->Map(g_pGeomBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mappedResource))) {
+        MessageBox(nullptr, L"Failed to map geometry buffer.", L"Error", MB_OK);
+        return;
+    }
+
+    GeomBuffer* data = (GeomBuffer*)mappedResource.pData;
+
+    for (size_t i = 0; i < g_VisibleCubeIndices.size(); ++i) {
+        int index = g_VisibleCubeIndices[i];
+        data->models[i] = g_mBuffers.models[index];
+        data->normals[i] = g_mBuffers.normals[index];
+        data->isNormalMapActive[i] = g_mBuffers.isNormalMapActive[index];
+    }
+
+    g_pImmediateContext->Unmap(g_pGeomBuffer, 0);
+}
+
 void Render() {
     static DWORD previousTime = GetTickCount64();
     DWORD currentTime = GetTickCount64();
@@ -1087,15 +1434,23 @@ void Render() {
     }
 
     g_pImmediateContext->RSSetState(g_pRasterizerState);
-    g_pImmediateContext->OMSetRenderTargets(1, &g_pRenderTargetView, g_pDepthStencilView);
-    g_pImmediateContext->ClearRenderTargetView(g_pRenderTargetView, reinterpret_cast<const float*>(&g_ClearColor));
+    if (g_EnablePostProcessing) {
+        g_pImmediateContext->OMSetRenderTargets(1, &g_pSceneRenderTargetView, g_pDepthStencilView);
+    }
+    else {
+        g_pImmediateContext->OMSetRenderTargets(1, &g_pRenderTargetView, g_pDepthStencilView);
+    }
+
+    // Очистка соответствующего рендер-таргета
+    ID3D11RenderTargetView* currentRTV = g_EnablePostProcessing ? g_pSceneRenderTargetView : g_pRenderTargetView;
+    g_pImmediateContext->ClearRenderTargetView(currentRTV, reinterpret_cast<const float*>(&g_ClearColor));
     g_pImmediateContext->ClearDepthStencilView(g_pDepthStencilView, D3D11_CLEAR_DEPTH, 1.0f, 0);
 
     ImGui_ImplDX11_NewFrame();
     ImGui_ImplWin32_NewFrame();
     ImGui::NewFrame();
 
-    ImGui::SetNextWindowSize(ImVec2(300, 125));
+    ImGui::SetNextWindowSize(ImVec2(300, 200));
     ImGui::SetNextWindowPos(ImVec2(0, 0));
 
     ImGui::Begin("Light Controls");
@@ -1106,6 +1461,11 @@ void Render() {
 
     ImGui::ColorEdit3("Light Color", reinterpret_cast<float*>(&lightColor));
 
+    ImGui::Checkbox("Enable Frustum Culling", &g_EnableFrustumCulling);
+
+    ImGui::Text("Visible Cubes: %d", static_cast<int>(g_VisibleCubeIndices.size()));
+
+    ImGui::Checkbox("Enable Post Processing", &g_EnablePostProcessing);
     ImGui::End();
 
     DirectX::XMVECTOR forward = DirectX::XMVectorSet(
@@ -1167,16 +1527,21 @@ void Render() {
         OutputDebugStringA("Skybox texture is not loaded.\n");
     }
 
-    // Отрисовка кубов
+    std::array<FrustumPlane, 6> frustumPlanes = ExtractFrustumPlanes(DirectX::XMMatrixMultiply(viewMatrix, projectionMatrix));
+
+    std::vector<DirectX::XMFLOAT3> cubePositions = ExtractCubePositions(g_mBuffers);
+
+    float cubeSize = 1.0f;
+    std::vector<AABB> cubeAABBs = CreateAABBs(cubePositions, cubeSize);
+
+    UpdateVisibleCubes(frustumPlanes, cubeAABBs);
+
+    UpdateGeometryBuffer();
+
     g_pImmediateContext->OMSetDepthStencilState(g_pDepthStencilState, 0);
 
-    GeomBuffer geomBuffer;
     VPBuffer vpBuffer;
-
-    geomBuffer.model = DirectX::XMMatrixRotationY(g_RotationAngle);
     vpBuffer.vp = DirectX::XMMatrixMultiply(viewMatrix, projectionMatrix);
-
-    g_pImmediateContext->UpdateSubresource(g_pGeomBuffer, 0, nullptr, &geomBuffer, 0, 0);
 
     D3D11_MAPPED_SUBRESOURCE mappedResource;
     if (SUCCEEDED(g_pImmediateContext->Map(g_pVPBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mappedResource))) {
@@ -1188,73 +1553,32 @@ void Render() {
         return;
     }
 
+
+    UINT stride = sizeof(TextureVertex);
+    UINT offset = 0;
+    g_pImmediateContext->IASetVertexBuffers(0, 1, &g_pVertexBuffer, &stride, &offset);
+    g_pImmediateContext->IASetIndexBuffer(g_pIndexBuffer, DXGI_FORMAT_R16_UINT, 0);
+    g_pImmediateContext->IASetInputLayout(g_pVertexLayout);
+    g_pImmediateContext->VSSetShader(g_pVertexShader, nullptr, 0);
+    g_pImmediateContext->PSSetShader(g_pPixelShader, nullptr, 0);
+    g_pImmediateContext->VSSetConstantBuffers(0, 1, &g_pGeomBuffer);
+    g_pImmediateContext->VSSetConstantBuffers(1, 1, &g_pVPBuffer);
+
+    // Установка текстур
+    g_pImmediateContext->PSSetShaderResources(0, 1, &g_pTextureView_stone);
+    g_pImmediateContext->PSSetShaderResources(2, 1, &g_pTextureView_puppy);
+    g_pImmediateContext->PSSetShaderResources(1, 1, &g_pNormalMapView);
+    g_pImmediateContext->PSSetSamplers(0, 1, &g_pSamplerState);
+
+    // Отрисовка всех инстансов за один вызов
+    g_pImmediateContext->DrawIndexedInstanced(36, static_cast<UINT>(g_VisibleCubeIndices.size()), 0, 0, 0);
+
     LightBufferType lightData;
     lightData.lightPos = lightPosition;
     lightData.lightColor = lightColor;
     lightData.ambient = DirectX::XMFLOAT3(0.1f, 0.1f, 0.1f);
     lightData.cameraPosition = g_CameraPosition;
     g_pImmediateContext->UpdateSubresource(g_pLightBuffer, 0, nullptr, &lightData, 0, 0);
-
-    // Отрисовка первого куба
-    if (g_pTextureView) {
-        UINT stride = sizeof(TextureVertex);
-        UINT offset = 0;
-
-        g_pImmediateContext->IASetVertexBuffers(0, 1, &g_pVertexBuffer, &stride, &offset);
-        g_pImmediateContext->IASetIndexBuffer(g_pIndexBuffer, DXGI_FORMAT_R16_UINT, 0);
-        g_pImmediateContext->IASetInputLayout(g_pVertexLayout);
-
-        g_pImmediateContext->VSSetShader(g_pVertexShader, nullptr, 0);
-        g_pImmediateContext->PSSetShader(g_pPixelShader, nullptr, 0);
-
-        g_pImmediateContext->PSSetConstantBuffers(0, 1, &g_pLightBuffer);
-        g_pImmediateContext->PSSetShaderResources(0, 1, &g_pTextureView);
-        g_pImmediateContext->PSSetShaderResources(1, 1, &g_pNormalMapView);
-        g_pImmediateContext->PSSetSamplers(0, 1, &g_pSamplerState);
-
-        GeomBuffer geomBuffer1;
-        geomBuffer1.model = DirectX::XMMatrixRotationY(g_RotationAngle);
-        geomBuffer1.normal = DirectX::XMMatrixInverse(nullptr, geomBuffer1.model);
-        geomBuffer1.normal = DirectX::XMMatrixTranspose(geomBuffer1.normal);
-
-        g_pImmediateContext->UpdateSubresource(g_pGeomBuffer, 0, nullptr, &geomBuffer1, 0, 0);
-
-        g_pImmediateContext->VSSetConstantBuffers(0, 1, &g_pGeomBuffer);
-        g_pImmediateContext->VSSetConstantBuffers(1, 1, &g_pVPBuffer);
-
-        g_pImmediateContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-        g_pImmediateContext->DrawIndexed(36, 0, 0);
-    }
-
-    // Отрисовка второго куба
-    if (g_pTextureView) {
-        UINT stride = sizeof(TextureVertex);
-        UINT offset = 0;
-
-        g_pImmediateContext->IASetVertexBuffers(0, 1, &g_pVertexBuffer, &stride, &offset);
-        g_pImmediateContext->IASetIndexBuffer(g_pIndexBuffer, DXGI_FORMAT_R16_UINT, 0);
-        g_pImmediateContext->IASetInputLayout(g_pVertexLayout);
-
-        g_pImmediateContext->VSSetShader(g_pVertexShader, nullptr, 0);
-        g_pImmediateContext->PSSetShader(g_pPixelShader, nullptr, 0);
-
-        g_pImmediateContext->PSSetConstantBuffers(0, 1, &g_pLightBuffer);
-        g_pImmediateContext->PSSetShaderResources(0, 1, &g_pTextureView);
-        g_pImmediateContext->PSSetShaderResources(1, 1, &g_pNormalMapView);
-        g_pImmediateContext->PSSetSamplers(0, 1, &g_pSamplerState);
-
-        GeomBuffer geomBuffer2;
-        geomBuffer2.model = DirectX::XMMatrixTranslation(2.5f, 0.0f, 0.0f);
-        geomBuffer2.normal = DirectX::XMMatrixInverse(nullptr, geomBuffer2.model);
-        geomBuffer2.normal = DirectX::XMMatrixTranspose(geomBuffer2.normal);
-        g_pImmediateContext->UpdateSubresource(g_pGeomBuffer2, 0, nullptr, &geomBuffer2, 0, 0);
-
-        g_pImmediateContext->VSSetConstantBuffers(0, 1, &g_pGeomBuffer2);
-        g_pImmediateContext->VSSetConstantBuffers(1, 1, &g_pVPBuffer);
-
-        g_pImmediateContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-        g_pImmediateContext->DrawIndexed(36, 0, 0);
-    }
 
     // Отрисовка прямоугольников с прозрачностью
     g_pImmediateContext->OMSetBlendState(g_pTransBlendState, nullptr, 0xFFFFFFFF);
@@ -1323,12 +1647,12 @@ void Render() {
 
 
     //light
-    UINT stride = sizeof(TextureVertex);
-    UINT offset = 0;
+    stride = sizeof(TextureVertex);
+    offset = 0;
 
     DirectX::XMMATRIX scale = DirectX::XMMatrixScaling(0.1f, 0.1f, 0.1f);
     DirectX::XMMATRIX translation = DirectX::XMMatrixTranslation(lightPosition.x, lightPosition.y, lightPosition.z);
-    GeomBuffer geomBuffer3;
+    GeomBufferLight geomBuffer3;
     geomBuffer3.model = scale * translation;
     geomBuffer3.normal = DirectX::XMMatrixInverse(nullptr, geomBuffer3.model);
     geomBuffer3.normal = DirectX::XMMatrixTranspose(geomBuffer3.normal);
@@ -1336,9 +1660,9 @@ void Render() {
 
     g_pImmediateContext->IASetVertexBuffers(0, 1, &g_pVertexBuffer, &stride, &offset);
     g_pImmediateContext->IASetIndexBuffer(g_pIndexBuffer, DXGI_FORMAT_R16_UINT, 0);
-    g_pImmediateContext->IASetInputLayout(g_pVertexLayout);
+    g_pImmediateContext->IASetInputLayout(g_pLightInputLayout);
 
-    g_pImmediateContext->VSSetShader(g_pVertexShader, nullptr, 0);
+    g_pImmediateContext->VSSetShader(g_pLightVertexShader, nullptr, 0);
     g_pImmediateContext->PSSetShader(g_pLightPS, nullptr, 0);
 
     
@@ -1347,6 +1671,24 @@ void Render() {
     g_pImmediateContext->PSSetConstantBuffers(0, 1, &g_pLightBuffer);
 
     g_pImmediateContext->DrawIndexed(36, 0, 0);
+
+    if (g_EnablePostProcessing && g_pSceneRenderTargetView && g_pSceneShaderResourceView) {
+        g_pImmediateContext->OMSetRenderTargets(1, &g_pRenderTargetView, nullptr);
+        g_pImmediateContext->IASetInputLayout(g_pPostProcessInputLayout);
+        g_pImmediateContext->VSSetShader(g_pPostProcessVertexShader, nullptr, 0);
+        g_pImmediateContext->PSSetShader(g_pPostProcessPixelShader, nullptr, 0);
+
+        UINT postProcessStride = sizeof(PostProcessVertex);
+        UINT postProcessOffset = 0;
+        g_pImmediateContext->IASetVertexBuffers(0, 1, &g_pPostProcessVertexBuffer, &postProcessStride, &postProcessOffset);
+        g_pImmediateContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+        g_pImmediateContext->PSSetShaderResources(0, 1, &g_pSceneShaderResourceView);
+        g_pImmediateContext->Draw(4, 0);
+    }
+    else {
+        // Если постпроцессинг выключен, просто копируем содержимое сцены в основной рендер-таргет
+        g_pImmediateContext->OMSetRenderTargets(1, &g_pRenderTargetView, nullptr);
+    }
 
     ImGui::Render();
     ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
@@ -1375,7 +1717,8 @@ void CleanupDevice()
     if (g_pPixelShader) g_pPixelShader->Release();
 
     // Освобождение текстур и семплеров
-    if (g_pTextureView) g_pTextureView->Release();
+    if (g_pTextureView_stone) g_pTextureView_stone->Release();
+    if (g_pTextureView_puppy) g_pTextureView_puppy->Release();
     if (g_pNormalMapView) g_pNormalMapView->Release();
     if (g_pSamplerState) g_pSamplerState->Release();
 
@@ -1406,11 +1749,22 @@ void CleanupDevice()
     if (g_pSkyboxIndexBuffer) g_pSkyboxIndexBuffer->Release();
     if (g_pGeomBufferSkyBox) g_pGeomBufferSkyBox->Release();
     if (g_pVPBufferSkyBox) g_pVPBufferSkyBox->Release();
+    
+    //PostProc
+    if (g_pSceneTexture) g_pSceneTexture->Release();
+    if (g_pSceneRenderTargetView) g_pSceneRenderTargetView->Release();
+    if (g_pSceneShaderResourceView) g_pSceneShaderResourceView->Release();
+    if (g_pPostProcessVertexBuffer) g_pPostProcessVertexBuffer->Release();
+    if (g_pPostProcessVertexShader) g_pPostProcessVertexShader->Release();
+    if (g_pPostProcessPixelShader) g_pPostProcessPixelShader->Release();
+    if (g_pPostProcessInputLayout) g_pPostProcessInputLayout->Release();
 
     // Освобождение световых ресурсов
     if (g_pLightBuffer) g_pLightBuffer->Release();
     if (g_pLightColorBuffer) g_pLightColorBuffer->Release();
     if (g_pLightPS) g_pLightPS->Release();
+    if (g_pLightVertexShader) g_pLightVertexShader->Release();
+if (g_pLightInputLayout) g_pLightInputLayout->Release();
 
     // Освобождение основных ресурсов Direct3D
     if (g_pRenderTargetView) g_pRenderTargetView->Release();
