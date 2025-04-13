@@ -1684,6 +1684,9 @@ void Render() {
         g_pImmediateContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
         g_pImmediateContext->PSSetShaderResources(0, 1, &g_pSceneShaderResourceView);
         g_pImmediateContext->Draw(4, 0);
+
+        ID3D11ShaderResourceView* nullSRV = nullptr;
+        g_pImmediateContext->PSSetShaderResources(0, 1, &nullSRV);
     }
     else {
         // Если постпроцессинг выключен, просто копируем содержимое сцены в основной рендер-таргет
